@@ -166,12 +166,6 @@ typedef struct {
 HL_Syntax HL_DB[] = {
     /* C */
     {
-        (char*[]) {"Makefile", "makefile", NULL},
-        NULL, NULL, NULL, NULL,
-        "K", "K", "L",
-        0
-    },
-    {
         (char*[]) {".c", ".h", NULL},
         (char*[]) {
             "if", "else", "goto", "switch", "case", "default", "for", "while", "do", "break", "continue",
