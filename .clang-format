@@ -1,0 +1,39 @@
+# Language
+Language: C
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+PPIndentWidth: -1
+
+# Alignment
+AlignAfterOpenBracket: true
+AlignOperands: Align
+PointerAlignment: Left
+QualifierAlignment: Left
+
+# Line Breaking
+ColumnLimit: 80
+BreakAdjacentStringLiterals: true
+
+# Spacing
+SpaceAfterCStyleCast: true
+SpaceAfterLogicalNot: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+SpaceInEmptyBraces: Block
+SpacesBeforeTrailingComments: 1
+
+# Braces & Empty Lines
+MaxEmptyLinesToKeep: 1
+RemoveEmptyLinesInUnwrappedLines: true
+
+# Preprocessor / Includes
+IncludeBlocks: Regroup
+MainIncludeChar: AngleBracket
+
+# File Formatting
+InsertNewlineAtEOF: true
+LineEnding: CRLF
+KeepFormFeed: true

@@ -1,1 +1,12 @@
+# IDE stuff
+.idea/
+
+# Objects and executables
+*.o
 kilo
+kilo.exe
+old-kilo
+build/
+
+# Others
+ignore/
