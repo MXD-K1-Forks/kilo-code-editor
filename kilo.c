@@ -407,7 +407,7 @@ void EditorClearScreen(void) {
     Buffer buf = BufferCreate();
     BufferAppend(&buf, "\x1b[2J");
     BufferAppend(&buf, "\x1b[H");
-    // write(STDOUT_FILENO, ab.b, ab.len);
+    write(STDOUT_FILENO, buf.str, buf.len);
     BufferFree(&buf);
 }
 
