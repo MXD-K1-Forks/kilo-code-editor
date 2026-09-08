@@ -46,7 +46,6 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
-#include <sys/types.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <stdarg.h>
