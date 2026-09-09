@@ -73,11 +73,11 @@ enum HL_Type {
 /* This structure represents a single line of the file we are editing. */
 typedef struct {
     int idx;            /* Row index in the file, zero-based. */
-    int size;           /* Size of the row, excluding the null terminator. */
-    int rsize;          /* Size of the rendered row. */
+    size_t size;        /* Size of the row, excluding the null terminator. */
+    size_t rsize;       /* Size of the rendered row. */
     char* chars;        /* Row content. */
     char* render;       /* Row content "rendered" for screen (for TABs). */
-    enum HL_Type* hl;    /* Syntax highlight type for each character in render.*/
+    enum HL_Type* hl;   /* Syntax highlight type for each character in render.*/
 } Row;
 
 typedef struct {
@@ -411,14 +411,53 @@ void EditorClearScreen(void) {
 
 /* ======================= Editor rows implementation ======================= */
 
-void EditorUpdateRow(EditorData *e, Row *row) {}
-void EditorInsertRow(EditorData *e, int at, char *s, size_t len) {}
-void EditorFreeRow(EditorData *e, const Row *row) {
+/**
+ * Update the rendered version and the syntax highlight of a row.
+ */
+void EditorUpdateRow(EditorData *e, Row *row) {
+
+}
+
+/**
+ * Insert a row at the specified position, shifting the other rows on the bottom
+ * if required.
+ */
+int EditorInsertRow(EditorData *e, int at, char *s, size_t len) {
+    /* Reallocate memory for the new row */
+    Row* tmp = realloc(e->f_info.rows, sizeof(Row) * (e->f_info.num_rows + 1));
+    if (tmp == NULL) return -1;
+    e->f_info.rows = tmp;
+
+    /* Shift the other rows below this row */
+    memmove(e->f_info.rows + at + 1, e->f_info.rows + at, sizeof(Row) * (e->f_info.num_rows - at));
+    for (int i = at + 1; i <= e->f_info.num_rows; i++) e->f_info.rows[i].idx++;
+
+    /* Build the new row */
+    e->f_info.rows[at].idx = at;
+    e->f_info.rows[at].size = len;
+    e->f_info.rows[at].rsize = 0;
+    e->f_info.rows[at].render = NULL;
+    e->f_info.rows[at].hl = NULL;
+
+    char* tmp_str = malloc(len + 1);
+    if (tmp_str == NULL) return -1;
+    e->f_info.rows[at].chars = tmp_str;
+    memcpy(e->f_info.rows[at].chars, s, len + 1);
+
+    EditorUpdateRow(e, &e->f_info.rows[at]);
+    e->f_info.num_rows++;
+
+    return 0;
+}
+
+void EditorDelRow(EditorData *e, int at) {}
+
+void EditorFreeRow(const Row *row) {
     free(row->render);
     free(row->chars);
     free(row->hl);
 }
-void EditorDelRow(EditorData *e, int at) {}
+
 void EditorRowInsertChar(EditorData *e, Row *row, int at, int c) {}
 void EditorRowAppendString(EditorData *e, Row *row, char *s, size_t len) {}
 void EditorRowDelChar(EditorData *e, Row *row, int at) {}
@@ -451,8 +490,6 @@ int EditorReadKey(void) {
     default:
         return c;
     }
-
-    return c;
 }
 
 /**
@@ -521,10 +558,7 @@ int EditorProcessInput(EditorData *e) {
 
 int FileLoadContents(EditorData *e) {
     FILE *fp = fopen(e->f_info.filename, "r");
-    if (fp == NULL) {
-        // TODO: report error
-        return -1;
-    }
+    if (fp == NULL) return -1;
 
     char *line = NULL;
     size_t n = 0;
@@ -532,7 +566,7 @@ int FileLoadContents(EditorData *e) {
     while((line_len = getline(&line, &n, fp)) != -1) {
         line[--line_len] = '\0';
 
-        EditorInsertRow(e, e->f_info.num_rows, line, line_len);
+        if (EditorInsertRow(e, e->f_info.num_rows, line, line_len) == -1) return  -1;
     }
 
     free(line);
@@ -547,8 +581,13 @@ void FileLoad(EditorData *e, const char* filename) {
 
     e->f_info = (FileInfo) {
         .cx = 0, .cy = 0,
+        .row_offset = 0,
+        .col_offset = 0,
         .filename = fn,
+        .num_rows = 0,
         .syntax = NULL,
+        .rows = NULL,
+        .is_crlf = 0,
         .dirty = 0,
     };
 
