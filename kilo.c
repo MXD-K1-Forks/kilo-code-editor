@@ -448,7 +448,7 @@ int EditorReadKey(void) {
     while ((bytes = read(STDIN_FILENO, &c, 1)) == 0) {} /* Ensure there is some input to process */
 
     switch (c) {
-        default:
+    default:
         return c;
     }
 
