@@ -52,16 +52,19 @@
 #define EXIT_SIGNAL 1 /* Used to signal program end */
 
 /* Syntax highlight types */
-#define HL_NORMAL      0 /* Any text that is not categorized */
-#define HL_NONPRINT    1 /* Non-printable characters */
-#define HL_COMMENT     2 /* Single line comment. */
-#define HL_ML_COMMENT  3 /* Multi-line comment. */
-#define HL_KEYWORD1    4
-#define HL_KEYWORD2    5
-#define HL_KEYWORD3    6
-#define HL_KEYWORD4    7
-#define HL_STRING      8
-#define HL_NUMBER      9
+enum HL_Type {
+    HL_NORMAL,     /* Any text that is not categorized */
+    HL_NONPRINT,   /* Non-printable characters */
+    HL_COMMENT,    /* Single line comment. */
+    HL_ML_COMMENT, /* Multi-line comment. */
+    HL_KEYWORD1,
+    HL_KEYWORD2,
+    HL_KEYWORD3,
+    HL_KEYWORD4,
+    HL_STRING,
+    HL_NUMBER,
+    HL_MATCH,
+};
 
 /* Flags */
 #define HL_HIGHLIGHT_STRINGS (1 << 0)
@@ -74,7 +77,7 @@ typedef struct {
     int rsize;          /* Size of the rendered row. */
     char* chars;        /* Row content. */
     char* render;       /* Row content "rendered" for screen (for TABs). */
-    unsigned char* hl;  /* Syntax highlight type for each character in render.*/
+    enum HL_Type* hl;    /* Syntax highlight type for each character in render.*/
 } Row;
 
 typedef struct {
@@ -93,7 +96,7 @@ typedef struct {
 } HL_Syntax;
 
 typedef struct {
-    int cx,cy;         /* Cursor x and y position in characters */
+    int cx, cy;        /* Cursor x and y position in characters */
     int row_offset;    /* Offset of row displayed. */
     int col_offset;    /* Offset of column displayed. */
     int num_rows;      /* Number of rows in the file */
@@ -138,6 +141,10 @@ enum KEY_ACTION {
     PAGE_DOWN
 };
 
+/* We define a very simple "append buffer" structure, that is a heap
+ * allocated string where we can append to. This is useful in order to
+ * write all the escape sequences in a buffer and flush them to the standard
+ * output in a single call, to avoid flickering effects. */
 typedef struct {
     char* str;
     size_t len;
@@ -149,20 +156,21 @@ typedef struct {
  * matches and keywords. The file name matches are used in order to match
  * a given syntax with a given file name: if a match pattern starts with a
  * dot, it is matched as the last past of the filename, for example ".c".
- * Otherwise, the pattern is just searched inside the filename, like "Makefile").
+ * Otherwise, the pattern is just searched inside the filename, like "Makefile".
  *
- * The list of keywords to highlight is just a list of words, however if
- * a trailing '|' character is added at the end, they are highlighted in
- * a different color, so that you can have two different sets of keywords.
+ * The four lists of keywords to highlight is just a list of words, is a way to have four different
+ * categories of keywords so that you can have proper highlighting.
  *
- * Finally add a stanza in the HLDB global variable with two arrays
+ * Finally add a stanza in the HL_DB global variable with five arrays
  * of strings, and a set of flags in order to enable highlighting of
- * comments and numbers.
+ * strings and numbers.
  *
- * The characters for single and multi line comments must be exactly two
- * and must be provided as well (see the C language example).
+ * The characters for single and multiline comments must be provided.
  *
- * There is no support to highlight patterns currently. */
+ * There is no support to highlight patterns currently.
+ *
+ * For more see the C language example.
+ */
 HL_Syntax HL_DB[] = {
     /* C */
     {
@@ -199,13 +207,47 @@ DWORD terminal_mode; /* In order to restore at exit.*/
 struct termios terminal_mode; /* In order to restore at exit.*/
 #endif
 
-EditorData EditorInit(void) {
-    EditorData editor;
-    editor.screen_rows = 0;
-    editor.screen_cols = 0;
-    editor.in_raw_mode = 0;
-    editor.f_info = (FileInfo) {0};
-    return editor;
+/**
+ * Replacement for posix's getline that works in both Windows and POSIX.
+ */
+ssize_t getline(char** lineptr, size_t *n , FILE *stream) {
+    if (stream == NULL || n == NULL) return -1;
+
+    if (*n == 0) {
+        *n = 64;
+    }
+
+    if (*lineptr == NULL) {
+        *n = 64;
+        *lineptr = malloc(*n);
+        if (*lineptr == NULL) return -1;
+    }
+
+    size_t len = 0;
+    int c;
+
+    while ((c = fgetc(stream)) != EOF) {
+        if (len + 1 >= *n) {
+            char *tmp  = realloc(*lineptr, *n * 2);
+            if (tmp == NULL) return -1;
+            *lineptr = tmp;
+            *n *= 2;
+        }
+
+        (*lineptr)[len++] = (char) c;
+        if (c == '\n') break;
+    }
+
+    if (c == EOF) {
+        if (ferror(stream))
+            return -1;
+
+        if (len == 0)
+            return -1;
+    }
+
+    (*lineptr)[len] = '\0';
+    return (ssize_t) len;
 }
 
 int EnableRawMode(EditorData *e) {
@@ -279,6 +321,28 @@ int DisableRawMode(EditorData *e) {
     return 0;
 }
 
+Buffer BufferCreate(void) {
+    Buffer buffer = {NULL, 0};
+    return buffer;
+}
+
+int BufferAppend(Buffer *buf, char* str) {
+    const size_t str_len = strlen(str);
+    char* new = realloc(buf->str, buf->len + str_len);
+    if (new == NULL) return -1;
+
+    memcpy(new + buf->len, str, str_len);
+    buf->str = new;
+    buf->len += str_len;
+    return 0;
+}
+
+void BufferFree(const Buffer *buf) {
+    free(buf->str);
+}
+
+/* ============================ Window Utilities ============================ */
+
 /**
  * Query the system to get the current cursor position.
  *
@@ -332,9 +396,106 @@ int GetWindowSize(int *rows, int *cols) {
     return 0;
 }
 
-void LoadFile(EditorData *e, const char* filename) {
+int UpdateWindowSize(EditorData *e) {
+    if (GetWindowSize(&e->screen_rows, &e->screen_cols) == -1) return -1;
+    e->screen_rows -= 2; /* Get room for status bar. */
+    return 0;
+}
+
+void EditorClearScreen(void) {
+    Buffer buf = BufferCreate();
+    BufferAppend(&buf, "\x1b[2J");
+    BufferAppend(&buf, "\x1b[H");
+    write(STDOUT_FILENO, buf.str, buf.len);
+    BufferFree(&buf);
+}
+
+/* ========================================================================== */
+
+/* ======================= Editor rows implementation ======================= */
+
+void EditorUpdateRow(EditorData *e, Row *row) {}
+void EditorInsertRow(EditorData *e, int at, char *s, size_t len) {}
+void EditorFreeRow(EditorData *e, Row *row) {
+    free(row->render);
+    free(row->chars);
+    free(row->hl);
+}
+void EditorDelRow(EditorData *e, int at) {}
+void EditorRowInsertChar(EditorData *e, Row *row, int at, int c) {}
+void EditorRowAppendString(EditorData *e, Row *row, char *s, size_t len) {}
+void EditorRowDelChar(EditorData *e, Row *row, int at) {}
+void EditorInsertChar(EditorData *e, int c) {}
+void EditorInsertNewline(EditorData *e) {}
+void EditorDelChar(EditorData *e) {}
+
+
+/**
+ * Turn the editor rows into a single heap-allocated string.
+ * Returns the pointer to the heap-allocated string and populate the
+ * integer pointed by 'buffer_len' with the size of the string, excluding
+ * the final null terminator.
+ */
+char* EditorRowsToString(EditorData *e, int *buffer_len) {}
+
+/* ========================================================================== */
+
+/* ========================= Editor events handling  ======================== */
+
+int EditorReadKey(void) {
+    return 0;
+}
+
+/**
+ * Handle cursor position change when arrow keys are pressed.
+ */
+void EditorMoveCursor(EditorData *e, int key) {}
+
+/* When the file is modified, requires Ctrl-Q to be pressed `QUIT_TIMES` times before quitting. */
+const int QUIT_TIMES = 3;
+
+/**
+ * Process events arriving from the standard input (by user).
+ */
+int EditorProcessInput(EditorData *e) {
+    int key = EditorReadKey();
+    switch (key) {
+    case ENTER:
+        EditorInsertNewline(e);
+        break;
+    case CTRL_Q:
+        EditorClearScreen();
+        return EXIT_SIGNAL;
+    }
+    return 0;
+}
+
+/* ========================================================================== */
+
+int FileLoadContents(EditorData *e) {
+    FILE *fp = fopen(e->f_info.filename, "r");
+    if (fp == NULL) {
+        // TODO: report error
+        return -1;
+    }
+
+    char *line = NULL;
+    size_t n = 0;
+    ssize_t line_len;
+    while((line_len = getline(&line, &n, fp)) != -1) {
+        line[--line_len] = '\0';
+
+        EditorInsertRow(e, e->f_info.num_rows, line, line_len);
+    }
+
+    free(line);
+    fclose(fp);
+    return 0;
+}
+
+void FileLoad(EditorData *e, const char* filename) {
     char* fn = malloc(strlen(filename) + 1);
-    if (fn == NULL) exit(2);
+    if (fn == NULL) exit(1);
 
     strcpy(fn, filename);
     e->f_info = (FileInfo) {
@@ -343,7 +504,11 @@ void LoadFile(EditorData *e, const char* filename) {
         .syntax = NULL,
         .dirty = 0,
     };
+
+    FileLoadContents(e);
 }
+
+void FileSave(EditorData *e) {}
 
 /**
  * Select the syntax highlight scheme depending on the filename.
@@ -356,6 +521,7 @@ void FileSelectSyntax(EditorData *e) {
              ext != NULL;
              j++) {
             ext = syntax.file_extensions[j];
+
             /* Compare extensions only if filename starts with a dot */
             if (ext && ext[0] == '.') {
                 char* f_ext = strstr(e->f_info.filename, ".");
@@ -375,61 +541,66 @@ void FileSelectSyntax(EditorData *e) {
     }
 }
 
-void LoadFileContents(EditorData *e) {
-
-}
-
 void EditorDestroy(const EditorData *e) {
     free(e->f_info.filename);
 }
 
-Buffer BufferCreate(void) {
-    Buffer buffer = {NULL, 0};
-    return buffer;
-}
+int EditorUpdateSyntax(Row *row, HL_Syntax *syntax) {
+    enum HL_Type* tmp = realloc(row->hl, row->rsize);
+    if (tmp == NULL) return -1;
+    row->hl = tmp;
 
-int BufferAppend(Buffer *buf, char* str) {
-    const size_t str_len = strlen(str);
-    char* new = realloc(buf->str, buf->len + str_len);
-    if (new == NULL) return -1;
+    memset(row->hl,HL_NORMAL,row->rsize);
 
-    memcpy(new + buf->len, str, str_len);
-    buf->str = new;
-    buf->len += str_len;
+    if (syntax == NULL) return 0; /* No syntax, everything is HL_NORMAL. */
+
+    // TODO
+
     return 0;
 }
 
-void BufferFree(const Buffer *buf) {
-    free(buf->str);
-}
+/**
+ * Maps syntax highlight token types to terminal colors.
+ */
+int EditorMapSyntaxToColor(const enum HL_Type hl) {
+    switch (hl) {
+    case HL_COMMENT:
+    case HL_ML_COMMENT: return 90;  /* gray */
 
-void EditorClearScreen(void) {
-    Buffer buf = BufferCreate();
-    BufferAppend(&buf, "\x1b[2J");
-    BufferAppend(&buf, "\x1b[H");
-    write(STDOUT_FILENO, buf.str, buf.len);
-    BufferFree(&buf);
+    case HL_KEYWORD1: return 33;    /* yellow */
+    case HL_KEYWORD2: return 32;    /* green */
+    case HL_KEYWORD3: return 31;    /* red */
+    case HL_KEYWORD4: return 34;    /* blue */
+
+    case HL_STRING: return 35;      /* magenta */
+    case HL_NUMBER: return 36;      /* cyan */
+
+    case HL_MATCH: return 91;       /* bright red */
+
+    default: return 37;             /* white */
+    }
 }
 
 void EditorRefreshScreen(void) {
 
 }
 
-int EditorProcessInput(void) {
-    int key = 0;
-    switch (key) {
-    case CTRL_Q:
-        return EXIT_SIGNAL;
-    }
-    return 0;
-}
-
-void EditorRunLoop(void) {
+void EditorRunLoop(EditorData *e) {
     int exit = 0;
     while (exit != EXIT_SIGNAL) {
         EditorRefreshScreen();
-        exit = EditorProcessInput();
+        exit = EditorProcessInput(e);
     }
+}
+
+EditorData EditorInit(void) {
+    EditorData editor;
+    editor.screen_rows = 0;
+    editor.screen_cols = 0;
+    editor.in_raw_mode = 0;
+    editor.f_info = (FileInfo) {0};
+    UpdateWindowSize(&editor);
+    return editor;
 }
 
 int main(int argc, char* argv[]) {
@@ -449,12 +620,12 @@ int main(int argc, char* argv[]) {
 
     /* Setup terminal and get required info */
     EditorData editor = EditorInit();
-    LoadFile(&editor, filename);
+    FileLoad(&editor, filename);
     FileSelectSyntax(&editor);
     EnableRawMode(&editor);
 
     /* Run */
-    EditorRunLoop();
+    EditorRunLoop(&editor);
 
     /* Undo changes and exit */
     DisableRawMode(&editor);
