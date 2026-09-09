@@ -1,5 +1,5 @@
 /* Kilo -- A very simple editor in less than 1-kilo lines of code (as counted
-*         by "cloc"). Does not depend on libcurses, directly emits VT100
+ *         by "cloc"). Does not depend on libcurses, directly emits VT100
  *         escapes on the terminal.
  *
  * -----------------------------------------------------------------------
@@ -401,8 +401,8 @@ int UpdateWindowSize(EditorData *e) {
 
 void EditorClearScreen(void) {
     Buffer buf = BufferCreate();
-    BufferAppend(&buf, "\x1b[2J");
-    BufferAppend(&buf, "\x1b[H");
+    BufferAppend(&buf, "\033[2J");
+    BufferAppend(&buf, "\033[H");
     write(STDOUT_FILENO, buf.str, buf.len);
     BufferFree(&buf);
 }
@@ -564,7 +564,14 @@ int FileLoadContents(EditorData *e) {
     size_t n = 0;
     ssize_t line_len;
     while((line_len = getline(&line, &n, fp)) != -1) {
-        line[--line_len] = '\0';
+        if (line_len >= 2 && line[line_len - 2] == '\r' && line[line_len - 1] == '\n') {
+            e->f_info.is_crlf = 1;
+            line_len--;
+        }
+
+        if (line_len && (line[line_len - 1] == '\r' || line[line_len - 1] == '\n')) {
+            line[--line_len] = '\0';
+        }
 
         if (EditorInsertRow(e, e->f_info.num_rows, line, line_len) == -1) return  -1;
     }
@@ -670,7 +677,20 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
 /* This function writes the whole screen using VT100 escape characters
  * starting from the logical state of the editor in the 'e'. */
 void EditorRefreshScreen(EditorData *e) {
+    Buffer buf = BufferCreate();
 
+    BufferAppend(&buf, "\033[?25l"); /* Hide cursor. */
+    BufferAppend(&buf, "\033[H");    /* Go home. */
+
+    for (int i = 0; i < e->f_info.num_rows; i++) {
+        Row *row = &e->f_info.rows[i];
+        BufferAppend(&buf, row->chars);
+        BufferAppend(&buf, "\r\n");
+    }
+
+    BufferAppend(&buf, "\033[?25h"); /* Show cursor. */
+    write(STDOUT_FILENO, buf.str, buf.len);
+    BufferFree(&buf);
 }
 
 void EditorRunLoop(EditorData *e) {
