@@ -117,15 +117,12 @@ typedef struct {
 enum KEY_ACTION {
     KEY_NULL = 0,       /* NULL */
     CTRL_C = 3,         /* Ctrl-C */
-    CTRL_D = 4,         /* Ctrl-D */
     CTRL_F = 6,         /* Ctrl-F */
-    CTRL_H = 8,         /* Ctrl-H */
     TAB = 9,            /* Tab */
     CTRL_L = 12,        /* Ctrl+L */
     ENTER = 13,         /* Enter */
     CTRL_Q = 17,        /* Ctrl-Q */
     CTRL_S = 19,        /* Ctrl-S */
-    CTRL_U = 21,        /* Ctrl-U */
     ESC = 27,           /* Escape */
     BACKSPACE =  127,   /* Backspace */
 
@@ -326,7 +323,7 @@ Buffer BufferCreate(void) {
     return buffer;
 }
 
-int BufferAppend(Buffer *buf, char* str) {
+int BufferAppend(Buffer *buf, const char* str) {
     const size_t str_len = strlen(str);
     char* new = realloc(buf->str, buf->len + str_len);
     if (new == NULL) return -1;
@@ -416,7 +413,7 @@ void EditorClearScreen(void) {
 
 void EditorUpdateRow(EditorData *e, Row *row) {}
 void EditorInsertRow(EditorData *e, int at, char *s, size_t len) {}
-void EditorFreeRow(EditorData *e, Row *row) {
+void EditorFreeRow(EditorData *e, const Row *row) {
     free(row->render);
     free(row->chars);
     free(row->hl);
@@ -442,8 +439,20 @@ char* EditorRowsToString(EditorData *e, int *buffer_len) {}
 
 /* ========================= Editor events handling  ======================== */
 
+void FileSave(EditorData *e);
+void EditorFind(EditorData *e);
+
 int EditorReadKey(void) {
-    return 0;
+    char c;
+    int bytes;
+    while ((bytes = read(STDIN_FILENO, &c, 1)) == 0) {} /* Ensure there is some input to process */
+
+    switch (c) {
+        default:
+        return c;
+    }
+
+    return c;
 }
 
 /**
@@ -451,22 +460,60 @@ int EditorReadKey(void) {
  */
 void EditorMoveCursor(EditorData *e, int key) {}
 
-/* When the file is modified, requires Ctrl-Q to be pressed `QUIT_TIMES` times before quitting. */
-const int QUIT_TIMES = 3;
+/* When the file is modified, requires Ctrl-Q to be pressed `KILO_QUIT_TIMES` times before quitting. */
+const int KILO_QUIT_TIMES = 3;
 
 /**
  * Process events arriving from the standard input (by user).
  */
 int EditorProcessInput(EditorData *e) {
+    static int quit_times = KILO_QUIT_TIMES;
+
     int key = EditorReadKey();
+    if (key == -1) return -1;
+
     switch (key) {
     case ENTER:
         EditorInsertNewline(e);
         break;
+    case BACKSPACE:
+    case DEL_KEY:
+        EditorDelChar(e);
+        break;
     case CTRL_Q:
+        if (e->f_info.dirty && quit_times) {
+            // TODO: Set message
+            quit_times--;
+        }
         EditorClearScreen();
         return EXIT_SIGNAL;
+    case ARROW_UP:
+    case ARROW_DOWN:
+    case ARROW_LEFT:
+    case ARROW_RIGHT:
+        EditorMoveCursor(e, key);
+        break;
+    case PAGE_UP:
+    case PAGE_DOWN:
+        break; // TODO
+    case TAB: // TODO
+    case CTRL_L: // TODO
+    case KEY_NULL:
+    case CTRL_C: /* Ignore Ctrl-C */
+    case ESC: /* Nothing to do for ESC in this mode. */
+        break;
+    case CTRL_S:
+        FileSave(e);
+        break;
+    case CTRL_F:
+        EditorFind(e);
+        break;
+    default:
+        EditorInsertChar(e, key);
+        break;
     }
+
+    quit_times = KILO_QUIT_TIMES; /* Reset it to the original value. */
     return 0;
 }
 
@@ -496,8 +543,8 @@ int FileLoadContents(EditorData *e) {
 void FileLoad(EditorData *e, const char* filename) {
     char* fn = malloc(strlen(filename) + 1);
     if (fn == NULL) exit(1);
-
     strcpy(fn, filename);
+
     e->f_info = (FileInfo) {
         .cx = 0, .cy = 0,
         .filename = fn,
@@ -545,7 +592,7 @@ void EditorDestroy(const EditorData *e) {
     free(e->f_info.filename);
 }
 
-int EditorUpdateSyntax(Row *row, HL_Syntax *syntax) {
+int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
     enum HL_Type* tmp = realloc(row->hl, row->rsize);
     if (tmp == NULL) return -1;
     row->hl = tmp;
@@ -581,14 +628,16 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
     }
 }
 
-void EditorRefreshScreen(void) {
+/* This function writes the whole screen using VT100 escape characters
+ * starting from the logical state of the editor in the 'e'. */
+void EditorRefreshScreen(EditorData *e) {
 
 }
 
 void EditorRunLoop(EditorData *e) {
     int exit = 0;
     while (exit != EXIT_SIGNAL) {
-        EditorRefreshScreen();
+        EditorRefreshScreen(e);
         exit = EditorProcessInput(e);
     }
 }
@@ -602,6 +651,14 @@ EditorData EditorInit(void) {
     UpdateWindowSize(&editor);
     return editor;
 }
+
+/* =============================== Find mode ================================ */
+
+#define KILO_QUERY_LEN 256
+
+void EditorFind(EditorData *e) {}
+
+/* ========================================================================== */
 
 int main(int argc, char* argv[]) {
     char* filename = {0};
