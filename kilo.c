@@ -72,7 +72,7 @@ enum HL_Type {
 
 /* This structure represents a single line of the file we are editing. */
 typedef struct {
-    int idx;            /* Row index in the file, zero-based. */
+    size_t idx;            /* Row index in the file, zero-based. */
     size_t size;        /* Size of the row, excluding the null terminator. */
     size_t rsize;       /* Size of the rendered row. */
     char* chars;        /* Row content. */
@@ -99,7 +99,7 @@ typedef struct {
     int cx, cy;        /* Cursor x and y position in characters */
     int row_offset;    /* Offset of row displayed. */
     int col_offset;    /* Offset of column displayed. */
-    int num_rows;      /* Number of rows in the file */
+    size_t num_rows;   /* Number of rows in the file */
     Row* rows;         /* Rows */
     int dirty;         /* File modified but not saved. */
     char* filename;    /* Currently open filename */
@@ -323,8 +323,8 @@ Buffer BufferCreate(void) {
     return buffer;
 }
 
-int BufferAppend(Buffer *buf, const char* str) {
-    const size_t str_len = strlen(str);
+int BufferAppend(Buffer *buf, const char* str, const size_t len) {
+    const size_t str_len = len ? len : strlen(str);
     char* new = realloc(buf->str, buf->len + str_len);
     if (new == NULL) return -1;
 
@@ -401,28 +401,96 @@ int UpdateWindowSize(EditorData *e) {
 
 void EditorClearScreen(void) {
     Buffer buf = BufferCreate();
-    BufferAppend(&buf, "\033[2J");
-    BufferAppend(&buf, "\033[H");
+    BufferAppend(&buf, "\033[2J", 0);
+    BufferAppend(&buf, "\033[H", 0);
     write(STDOUT_FILENO, buf.str, buf.len);
     BufferFree(&buf);
 }
 
 /* ========================================================================== */
 
+/**
+ * Set every byte of row->hl that corresponds to every character
+ * in the row to the right syntax highlight type.
+ */
+int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
+    enum HL_Type* tmp = realloc(row->hl, sizeof(enum HL_Type) * row->rsize);
+    if (tmp == NULL) return -1;
+    row->hl = tmp;
+
+    memset(row->hl, HL_NORMAL, row->rsize);
+
+    if (syntax == NULL) return 0; /* No syntax, everything is HL_NORMAL. */
+
+    const char *lcs = syntax->line_comment_start;
+    const char *mcs = syntax->multiline_comment_start;
+    const char *mce = syntax->multiline_comment_end;
+
+    size_t i = 0;
+    char *p = row->render;
+    while (*p) {
+        /* Single line comments */
+        if (strncmp(p, lcs, strlen(lcs)) == 0) {
+            memset(row->hl + i, HL_COMMENT, (row->rsize - i) * sizeof(enum HL_Type));
+            break;
+        }
+
+        p++;
+        i++;
+    }
+
+    return 0;
+}
+
+/**
+ * Maps syntax highlight token types to terminal colors.
+ */
+int EditorMapSyntaxToColor(const enum HL_Type hl) {
+    switch (hl) {
+    case HL_COMMENT:
+    case HL_ML_COMMENT: return 90;  /* gray */
+
+    case HL_KEYWORD1: return 33;    /* yellow */
+    case HL_KEYWORD2: return 32;    /* green */
+    case HL_KEYWORD3: return 31;    /* red */
+    case HL_KEYWORD4: return 34;    /* blue */
+
+    case HL_STRING: return 35;      /* magenta */
+    case HL_NUMBER: return 36;      /* cyan */
+
+    case HL_MATCH: return 91;       /* bright red */
+
+    case HL_NORMAL:
+    default: return 37;             /* white */
+    }
+}
+
 /* ======================= Editor rows implementation ======================= */
 
 /**
  * Update the rendered version and the syntax highlight of a row.
  */
-void EditorUpdateRow(EditorData *e, Row *row) {
+int EditorUpdateRow(EditorData *e, Row *row) {
+    /* tmp */
 
+    char *tmp = realloc(row->render, row->size + 1);
+    if (tmp == NULL) return -1;
+    row->rsize = row->size;
+    row->render = tmp;
+
+    memcpy(row->render, row->chars, row->rsize);
+    row->render[row->rsize] = '\0';
+
+    /* Update the syntax highlighting attributes of the row. */
+    if (EditorUpdateSyntax(row, e->f_info.syntax) == -1) return -1;
+    return 0;
 }
 
 /**
  * Insert a row at the specified position, shifting the other rows on the bottom
  * if required.
  */
-int EditorInsertRow(EditorData *e, int at, char *s, size_t len) {
+int EditorInsertRow(EditorData *e, size_t at, char *s, size_t len) {
     /* Reallocate memory for the new row */
     Row* tmp = realloc(e->f_info.rows, sizeof(Row) * (e->f_info.num_rows + 1));
     if (tmp == NULL) return -1;
@@ -430,7 +498,7 @@ int EditorInsertRow(EditorData *e, int at, char *s, size_t len) {
 
     /* Shift the other rows below this row */
     memmove(e->f_info.rows + at + 1, e->f_info.rows + at, sizeof(Row) * (e->f_info.num_rows - at));
-    for (int i = at + 1; i <= e->f_info.num_rows; i++) e->f_info.rows[i].idx++;
+    for (size_t i = at + 1; i <= e->f_info.num_rows; i++) e->f_info.rows[i].idx++;
 
     /* Build the new row */
     e->f_info.rows[at].idx = at;
@@ -444,13 +512,13 @@ int EditorInsertRow(EditorData *e, int at, char *s, size_t len) {
     e->f_info.rows[at].chars = tmp_str;
     memcpy(e->f_info.rows[at].chars, s, len + 1);
 
-    EditorUpdateRow(e, &e->f_info.rows[at]);
+    if (EditorUpdateRow(e, &e->f_info.rows[at]) == -1) return -1;
     e->f_info.num_rows++;
 
     return 0;
 }
 
-void EditorDelRow(EditorData *e, int at) {}
+void EditorDelRow(EditorData *e, size_t at) {}
 
 void EditorFreeRow(const Row *row) {
     free(row->render);
@@ -458,9 +526,9 @@ void EditorFreeRow(const Row *row) {
     free(row->hl);
 }
 
-void EditorRowInsertChar(EditorData *e, Row *row, int at, int c) {}
+void EditorRowInsertChar(EditorData *e, Row *row, size_t at, int c) {}
 void EditorRowAppendString(EditorData *e, Row *row, char *s, size_t len) {}
-void EditorRowDelChar(EditorData *e, Row *row, int at) {}
+void EditorRowDelChar(EditorData *e, Row *row, size_t at) {}
 void EditorInsertChar(EditorData *e, int c) {}
 void EditorInsertNewline(EditorData *e) {}
 void EditorDelChar(EditorData *e) {}
@@ -472,7 +540,10 @@ void EditorDelChar(EditorData *e) {}
  * integer pointed by 'buffer_len' with the size of the string, excluding
  * the final null terminator.
  */
-char* EditorRowsToString(EditorData *e, int *buffer_len) {}
+char* EditorRowsToString(EditorData *e, int *buffer_len) {
+    // TODO
+    return "";
+}
 
 /* ========================================================================== */
 
@@ -483,10 +554,12 @@ void EditorFind(EditorData *e);
 
 int EditorReadKey(void) {
     char c;
-    int bytes;
+    ssize_t bytes;
     while ((bytes = read(STDIN_FILENO, &c, 1)) == 0) {} /* Ensure there is some input to process */
 
     switch (c) {
+    case ESC: // TODO
+        break;
     default:
         return c;
     }
@@ -532,12 +605,12 @@ int EditorProcessInput(EditorData *e) {
         break;
     case PAGE_UP:
     case PAGE_DOWN:
-        break; // TODO
-    case TAB: // TODO
+        break;   // TODO
+    case TAB:    // TODO
     case CTRL_L: // TODO
     case KEY_NULL:
     case CTRL_C: /* Ignore Ctrl-C */
-    case ESC: /* Nothing to do for ESC in this mode. */
+    case ESC:    /* Nothing to do for ESC in this mode. */
         break;
     case CTRL_S:
         FileSave(e);
@@ -610,9 +683,7 @@ void FileSelectSyntax(EditorData *e) {
     for (unsigned int i = 0; i < HL_DB_ENTRIES; i++) {
         HL_Syntax syntax = HL_DB[i];
         char* ext = "";
-        for (unsigned int j = 0;
-             ext != NULL;
-             j++) {
+        for (unsigned int j = 0; ext != NULL; j++) {
             ext = syntax.file_extensions[j];
 
             /* Compare extensions only if filename starts with a dot */
@@ -638,57 +709,37 @@ void EditorDestroy(const EditorData *e) {
     free(e->f_info.filename);
 }
 
-int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
-    enum HL_Type* tmp = realloc(row->hl, row->rsize);
-    if (tmp == NULL) return -1;
-    row->hl = tmp;
-
-    memset(row->hl,HL_NORMAL,row->rsize);
-
-    if (syntax == NULL) return 0; /* No syntax, everything is HL_NORMAL. */
-
-    // TODO
-
-    return 0;
-}
-
-/**
- * Maps syntax highlight token types to terminal colors.
- */
-int EditorMapSyntaxToColor(const enum HL_Type hl) {
-    switch (hl) {
-    case HL_COMMENT:
-    case HL_ML_COMMENT: return 90;  /* gray */
-
-    case HL_KEYWORD1: return 33;    /* yellow */
-    case HL_KEYWORD2: return 32;    /* green */
-    case HL_KEYWORD3: return 31;    /* red */
-    case HL_KEYWORD4: return 34;    /* blue */
-
-    case HL_STRING: return 35;      /* magenta */
-    case HL_NUMBER: return 36;      /* cyan */
-
-    case HL_MATCH: return 91;       /* bright red */
-
-    default: return 37;             /* white */
-    }
-}
-
 /* This function writes the whole screen using VT100 escape characters
  * starting from the logical state of the editor in the 'e'. */
-void EditorRefreshScreen(EditorData *e) {
+void EditorRefreshScreen(const EditorData *e) {
     Buffer buf = BufferCreate();
 
-    BufferAppend(&buf, "\033[?25l"); /* Hide cursor. */
-    BufferAppend(&buf, "\033[H");    /* Go home. */
+    BufferAppend(&buf, "\033[?25l", 0); /* Hide cursor. */
+    BufferAppend(&buf, "\033[H", 0);    /* Go home. */
 
-    for (int i = 0; i < e->f_info.num_rows; i++) {
-        Row *row = &e->f_info.rows[i];
-        BufferAppend(&buf, row->chars);
-        BufferAppend(&buf, "\r\n");
+    for (size_t i = 0; i < e->f_info.num_rows; i++) {
+        const Row *row = &e->f_info.rows[i];
+        const size_t len = row->rsize;
+
+        int current_color = 37;
+        for (size_t j = 0; j < len; j++) {
+            int color = EditorMapSyntaxToColor(row->hl[j]);
+            if (color != current_color) {
+                current_color = color;
+
+                char tmp[8];
+                sprintf(tmp, "\033[%dm", current_color);
+                BufferAppend(&buf, tmp, 0);
+            }
+
+            BufferAppend(&buf, row->render + j, 1);
+        }
+
+        BufferAppend(&buf, "\033[39m", 0);
+        BufferAppend(&buf, "\r\n", 0);
     }
 
-    BufferAppend(&buf, "\033[?25h"); /* Show cursor. */
+    BufferAppend(&buf, "\033[?25h", 0); /* Show cursor. */
     write(STDOUT_FILENO, buf.str, buf.len);
     BufferFree(&buf);
 }
@@ -722,9 +773,11 @@ void EditorFind(EditorData *e) {}
 int main(int argc, char* argv[]) {
     char* filename = {0};
     if (argc == 1) {
-        // Pass that for now, will be changed later
-        fprintf(stderr, "Usage: ./kilo <filename>\n");
-        exit(1);
+        char input[256];
+        printf("Enter file: ");
+        scanf("%s", input);
+        printf("\n");
+        filename = input;
     }
     else if (argc == 2) {
         filename = argv[1];
