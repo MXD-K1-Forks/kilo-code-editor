@@ -72,7 +72,7 @@ enum HL_Type {
 
 /* This structure represents a single line of the file we are editing. */
 typedef struct {
-    size_t idx;            /* Row index in the file, zero-based. */
+    size_t idx;         /* Row index in the file, zero-based. */
     size_t size;        /* Size of the row, excluding the null terminator. */
     size_t rsize;       /* Size of the rendered row. */
     char* chars;        /* Row content. */
@@ -418,20 +418,19 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
     if (tmp == NULL) return -1;
     row->hl = tmp;
 
-    memset(row->hl, HL_NORMAL, row->rsize);
+    memset(row->hl, HL_NORMAL, sizeof(enum HL_Type) * row->rsize);
 
     if (syntax == NULL) return 0; /* No syntax, everything is HL_NORMAL. */
 
     const char *lcs = syntax->line_comment_start;
     const char *mcs = syntax->multiline_comment_start;
     const char *mce = syntax->multiline_comment_end;
-
     size_t i = 0;
     char *p = row->render;
     while (*p) {
         /* Single line comments */
         if (strncmp(p, lcs, strlen(lcs)) == 0) {
-            memset(row->hl + i, HL_COMMENT, (row->rsize - i) * sizeof(enum HL_Type));
+            memset(row->hl + i, HL_COMMENT, sizeof(enum HL_Type) * (row->rsize - i));
             break;
         }
 
@@ -470,7 +469,7 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
 /**
  * Update the rendered version and the syntax highlight of a row.
  */
-int EditorUpdateRow(EditorData *e, Row *row) {
+int EditorUpdateRow(const EditorData *e, Row *row) {
     /* tmp */
 
     char *tmp = realloc(row->render, row->size + 1);
@@ -483,6 +482,10 @@ int EditorUpdateRow(EditorData *e, Row *row) {
 
     /* Update the syntax highlighting attributes of the row. */
     if (EditorUpdateSyntax(row, e->f_info.syntax) == -1) return -1;
+    for (size_t i = 0; i < row->rsize; i++) {
+        if (row->hl[i] >= HL_NORMAL && row->hl[i] <= HL_MATCH) exit(20);
+    }
+
     return 0;
 }
 
@@ -490,7 +493,7 @@ int EditorUpdateRow(EditorData *e, Row *row) {
  * Insert a row at the specified position, shifting the other rows on the bottom
  * if required.
  */
-int EditorInsertRow(EditorData *e, size_t at, char *s, size_t len) {
+int EditorInsertRow(EditorData *e, const size_t at, const char *s, const size_t len) {
     /* Reallocate memory for the new row */
     Row* tmp = realloc(e->f_info.rows, sizeof(Row) * (e->f_info.num_rows + 1));
     if (tmp == NULL) return -1;
@@ -654,28 +657,6 @@ int FileLoadContents(EditorData *e) {
     return 0;
 }
 
-void FileLoad(EditorData *e, const char* filename) {
-    char* fn = malloc(strlen(filename) + 1);
-    if (fn == NULL) exit(1);
-    strcpy(fn, filename);
-
-    e->f_info = (FileInfo) {
-        .cx = 0, .cy = 0,
-        .row_offset = 0,
-        .col_offset = 0,
-        .filename = fn,
-        .num_rows = 0,
-        .syntax = NULL,
-        .rows = NULL,
-        .is_crlf = 0,
-        .dirty = 0,
-    };
-
-    FileLoadContents(e);
-}
-
-void FileSave(EditorData *e) {}
-
 /**
  * Select the syntax highlight scheme depending on the filename.
  */
@@ -708,6 +689,30 @@ void FileSelectSyntax(EditorData *e) {
 void EditorDestroy(const EditorData *e) {
     free(e->f_info.filename);
 }
+
+int FileLoad(EditorData *e, const char* filename) {
+    char* fn = malloc(strlen(filename) + 1);
+    if (fn == NULL) exit(1);
+    strcpy(fn, filename);
+
+    e->f_info = (FileInfo) {
+        .cx = 0, .cy = 0,
+        .row_offset = 0,
+        .col_offset = 0,
+        .filename = fn,
+        .num_rows = 0,
+        .syntax = NULL,
+        .rows = NULL,
+        .is_crlf = 0,
+        .dirty = 0,
+    };
+
+    FileSelectSyntax(e);
+    if (FileLoadContents(e) == -1) return -1;
+    return 0;
+}
+
+void FileSave(EditorData *e) {}
 
 /* This function writes the whole screen using VT100 escape characters
  * starting from the logical state of the editor in the 'e'. */
@@ -789,9 +794,11 @@ int main(int argc, char* argv[]) {
 
     /* Setup terminal and get required info */
     EditorData editor = EditorInit();
-    FileLoad(&editor, filename);
-    FileSelectSyntax(&editor);
-    EnableRawMode(&editor);
+    if (FileLoad(&editor, filename) == -1) return -1;
+    if (EnableRawMode(&editor) == -1) {
+        DisableRawMode(&editor);
+        return -1;
+    }
 
     /* Run */
     EditorRunLoop(&editor);
