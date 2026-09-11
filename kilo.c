@@ -34,7 +34,6 @@
  */
 
 #include <ctype.h>
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,10 +58,10 @@ enum HL_Type {
     HL_NONPRINT,   /* Non-printable characters */
     HL_COMMENT,    /* Single line comment. */
     HL_ML_COMMENT, /* Multi-line comment. */
-    HL_KEYWORD1,
-    HL_KEYWORD2,
-    HL_KEYWORD3,
-    HL_KEYWORD4,
+    HL_KEYWORD_T1,
+    HL_KEYWORD_T2,
+    HL_KEYWORD_T3,
+    HL_KEYWORD_T4,
     HL_STRING,
     HL_NUMBER,
     HL_MATCH,
@@ -180,12 +179,12 @@ HL_Syntax HL_DB[] = {
         (char*[]) {".c", ".h", NULL},
         (char*[]) {
             "if", "else", "goto", "switch", "case", "default", "for", "while", "do", "break", "continue",
-            "return", "enum", "struct", "union", "typedef", "static", "extern", "register", "volatile", "sizeof",
+            "return", "enum", "struct", "union", "typedef", "const", "static", "extern", "register", "volatile", "sizeof",
             NULL
         },
         (char*[]) {
             "void", "char", "int", "short", "long", "float", "double", "bool", "auto",
-            "const", "signed", "unsigned",
+            "signed", "unsigned",
             NULL
         },
         (char*[]) {
@@ -416,13 +415,41 @@ void EditorClearScreen(void) {
 
 /* ========================================================================== */
 
-#define HL_MEM_SIZE sizeof(enum HL_Type) * row->rsize
-
-void HL_Set(const Row *row, const enum HL_Type hl,
+void EditorSetHLType(const Row *row, const enum HL_Type hl,
     const size_t start, const size_t end) {
     for (size_t i = start; i < end; i++) {
         row->hl[i] = hl;
     }
+}
+
+enum HL_Type EditorGetHLType(const HL_Syntax *syntax, const char *word, const size_t len) {
+    char **groups[] = {
+        syntax->keywords_t1,
+        syntax->keywords_t2,
+        syntax->keywords_t3,
+        syntax->keywords_t4
+    };
+
+    enum HL_Type types[] = {
+        HL_KEYWORD_T1,
+        HL_KEYWORD_T2,
+        HL_KEYWORD_T3,
+        HL_KEYWORD_T4
+    };
+
+    for (size_t i = 0; i < 4; i++) {
+        char** keywords = groups[i];
+        if (keywords == NULL) continue;
+
+        for (size_t j = 0; keywords[j] != NULL; j++) {
+            const char* keyword = keywords[j];
+            if (strlen(keyword) == len && strncmp(word, keyword, strlen(keyword)) == 0) {
+                return types[i];
+            }
+        }
+    }
+
+    return HL_NORMAL;
 }
 
 /**
@@ -430,11 +457,11 @@ void HL_Set(const Row *row, const enum HL_Type hl,
  * in the row to the right syntax highlight type.
  */
 int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
-    enum HL_Type* tmp = realloc(row->hl, HL_MEM_SIZE);
+    enum HL_Type* tmp = realloc(row->hl, sizeof(enum HL_Type) * row->rsize);
     if (tmp == NULL) return -1;
     row->hl = tmp;
 
-    HL_Set(row, HL_NORMAL, 0, row->rsize);
+    EditorSetHLType(row, HL_NORMAL, 0, row->rsize);
 
     if (syntax == NULL) return 0; /* No syntax, everything is HL_NORMAL. */
 
@@ -459,7 +486,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
         /* Handle single line comments */
         if (strncmp(p, lcs, strlen(lcs)) == 0) {
             /* From here to end is a comment */
-            HL_Set(row, HL_COMMENT, i, row->rsize);
+            EditorSetHLType(row, HL_COMMENT, i, row->rsize);
             break;
         }
 
@@ -471,19 +498,18 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             token_start = i;
         } else if (in_string && *p == in_string) {
             /* Check if the string is closed */
-            HL_Set(row, HL_STRING, token_start, i + 1);
+            EditorSetHLType(row, HL_STRING, token_start, i + 1);
             in_string = 0;
         }
 
         /* Handle numbers */
         int is_number = 0;
-        if (isdigit(*p)) is_number = 1;
+        if (isdigit(*p)) is_number = 1; // TODO: add floats support
         if (flags & HL_HIGHLIGHT_NUMBERS && !in_token && is_number) {
             in_number = 1; /* we assign to *p in order to know the closing pair */
             token_start = i;
         } else if (in_number && !is_number) {
-            /* Check if the string is closed */
-            HL_Set(row, HL_NUMBER, token_start, i);
+            EditorSetHLType(row, HL_NUMBER, token_start, i);
             in_number = 0;
         }
 
@@ -493,7 +519,8 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             in_word = 1;
             token_start = i;
         } else if (in_word && !(isalnum(*p) || *p == '_')) {
-            HL_Set(row, HL_KEYWORD1, token_start, i);
+            const enum HL_Type  hl_type = EditorGetHLType(syntax, row->render + token_start, i - token_start);
+            EditorSetHLType(row, hl_type, token_start, i);
             in_word = 0;
         }
 
@@ -518,10 +545,10 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
     case HL_COMMENT:
     case HL_ML_COMMENT: return 90;  /* gray */
 
-    case HL_KEYWORD1: return 33;    /* yellow */
-    case HL_KEYWORD2: return 32;    /* green */
-    case HL_KEYWORD3: return 31;    /* red */
-    case HL_KEYWORD4: return 34;    /* blue */
+    case HL_KEYWORD_T1: return 34;    /* blue */
+    case HL_KEYWORD_T2: return 32;    /* green */
+    case HL_KEYWORD_T3: return 31;    /* red */
+    case HL_KEYWORD_T4: return 33;    /* yellow */
 
     case HL_STRING: return 35;      /* magenta */
     case HL_NUMBER: return 36;      /* cyan */
