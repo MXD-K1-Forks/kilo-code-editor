@@ -125,7 +125,7 @@ enum KEY_ACTION {
     CTRL_C = 3,         /* Ctrl-C */
     CTRL_F = 6,         /* Ctrl-F */
     TAB = 9,            /* Tab */
-    CTRL_L = 12,        /* Ctrl+L */
+    CTRL_L = 12,        /* Ctrl-L */
     ENTER = 13,         /* Enter */
     CTRL_Q = 17,        /* Ctrl-Q */
     CTRL_S = 19,        /* Ctrl-S */
@@ -655,8 +655,8 @@ int EditorRowsToString(const EditorData *e, Buffer *buf) {
 
 /* ========================= Editor events handling  ======================== */
 
-void FileSave(EditorData *e);
 void EditorFind(EditorData *e);
+void FileSave(const EditorData *e);
 void EditorRefreshScreen(const EditorData *e);
 
 int EditorInterpretESC(void) {
@@ -675,14 +675,14 @@ int EditorInterpretESC(void) {
                 if (seq[1] == '3') return DEL_KEY;
                 if (seq[1] == '5') return PAGE_UP;
                 if (seq[1] == '6') return PAGE_DOWN;
-            } else {
-                if (seq[1] == 'A') return ARROW_UP;
-                if (seq[1] == 'B') return ARROW_DOWN;
-                if (seq[1] == 'C') return ARROW_RIGHT;
-                if (seq[1] == 'D') return ARROW_LEFT;
-                if (seq[1] == 'H') return HOME_KEY;
-                if (seq[1] == 'F') return END_KEY;
             }
+        } else {
+            if (seq[1] == 'A') return ARROW_UP;
+            if (seq[1] == 'B') return ARROW_DOWN;
+            if (seq[1] == 'C') return ARROW_RIGHT;
+            if (seq[1] == 'D') return ARROW_LEFT;
+            if (seq[1] == 'H') return HOME_KEY;
+            if (seq[1] == 'F') return END_KEY;
         }
     }
 
@@ -713,9 +713,22 @@ int EditorReadKey(void) {
 /**
  * Handle cursor position change when arrow keys are pressed.
  */
-void EditorMoveCursor(const EditorData *e, const int key) {
-    switch (key) {
+void EditorMoveCursor(EditorData *e, const int key) {
+    FileInfo *f = &e->f_info;
 
+    switch (key) {
+    case ARROW_LEFT:
+    case ARROW_RIGHT:
+        break;
+    case ARROW_DOWN:
+        if ((size_t) f->row_offset + f->cy > f->num_rows) { break; }
+        if (f->cy == e->screen_rows - 1) { f->row_offset++; break; }
+        f->cy++; break;
+    case ARROW_UP: // TODO: fix a bug
+        if (f->cy == 0 && f->row_offset) { f->row_offset--; break; }
+        f->cy--; break;
+    default:
+        break;
     }
 }
 
@@ -800,7 +813,11 @@ int FileLoadContents(EditorData *e) {
             line[--line_len] = '\0';
         }
 
-        if (EditorInsertRow(e, e->f_info.num_rows, line, line_len) == -1) return  -1;
+        if (EditorInsertRow(e, e->f_info.num_rows, line, line_len) == -1) {
+            free(line);
+            fclose(fp);
+            return -1;
+        }
     }
 
     free(line);
@@ -820,7 +837,7 @@ void FileSelectSyntax(EditorData *e) {
 
             /* Compare extensions only if filename starts with a dot */
             if (ext && ext[0] == '.') {
-                char* f_ext = strstr(e->f_info.filename, ".");
+                const char* f_ext = strrchr(e->f_info.filename, '.');
                 if (f_ext == NULL) continue;
                 if (strcmp(ext, f_ext) == 0) {
                     e->f_info.syntax = &HL_DB[i];
@@ -839,6 +856,9 @@ void FileSelectSyntax(EditorData *e) {
 
 void EditorDestroy(const EditorData *e) {
     free(e->f_info.filename);
+    for (size_t  i = 0; i < e->f_info.num_rows; i++) {
+        EditorFreeRow(&e->f_info.rows[i]);
+    }
 }
 
 int FileLoad(EditorData *e, const char* filename) {
@@ -863,7 +883,7 @@ int FileLoad(EditorData *e, const char* filename) {
     return 0;
 }
 
-void FileSave(EditorData *e) {}
+void FileSave(const EditorData *e) {}
 
 /* This function writes the whole screen using VT100 escape characters
  * starting from the logical state of the editor in the 'e'. */
@@ -896,6 +916,11 @@ void EditorRefreshScreen(const EditorData *e) {
         BufferAppend(&buf, "\033[0K", 0);
         BufferAppend(&buf, "\r\n", 0);
     }
+
+    /* Restore cursor position */
+    char tmp[28];
+    sprintf(tmp, "\033[%d;%dH",e->f_info.cy + 1, e->f_info.cx);
+    BufferAppend(&buf, tmp, 0);
 
     BufferAppend(&buf, "\033[?25h", 0); /* Show cursor. */
     write(STDOUT_FILENO, buf.str, buf.len);
