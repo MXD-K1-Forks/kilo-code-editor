@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <unistd.h>
 
 #if _WIN32
@@ -116,6 +117,7 @@ typedef struct {
     int screen_cols;   /* Number of cols that we can show */
     int in_raw_mode;   /* Is terminal raw mode enabled? */
     FileInfo f_info;   /* Currently open file data */
+    char status[128];  /* Status message/info buffer */
 } EditorData;
 
 enum KEY_ACTION {
@@ -150,6 +152,9 @@ typedef struct {
     char* str;
     size_t len;
 } Buffer;
+
+__attribute__((format(printf, 2, 3)))
+void EditorSetStatusMessage(EditorData *e, const char *format, ...);
 
 /* =========================== Syntax highlights DB =========================
  *
@@ -338,6 +343,10 @@ int BufferAppend(Buffer *buf, const char* str, const size_t len) {
     buf->str = new;
     buf->len += str_len;
     return 0;
+}
+
+void BufferAppendNull(const Buffer *buf) {
+    buf->str[buf->len] = '\0';
 }
 
 void BufferFree(const Buffer *buf) {
@@ -632,11 +641,14 @@ void EditorDelChar(EditorData *e) {}
  * Turn the editor rows into a single heap-allocated string.
  * Returns the pointer to the heap-allocated string and populate the
  * integer pointed by 'buffer_len' with the size of the string, excluding
- * the final null terminator.
+ * the final null terminator. (Not updated)
  */
-char* EditorRowsToString(EditorData *e, int *buffer_len) {
-    // TODO
-    return "";
+int EditorRowsToString(const EditorData *e, Buffer *buf) {
+    for (size_t i = 0; i < e->f_info.num_rows; i++) {
+        if (BufferAppend(buf, e->f_info.rows[i].chars, 0) == -1) return -1;
+    }
+    BufferAppendNull(buf);
+    return 0;
 }
 
 /* ========================================================================== */
@@ -645,24 +657,67 @@ char* EditorRowsToString(EditorData *e, int *buffer_len) {
 
 void FileSave(EditorData *e);
 void EditorFind(EditorData *e);
+void EditorRefreshScreen(const EditorData *e);
+
+int EditorInterpretESC(void) {
+    char seq[3];
+
+    /* If this is just an ESC, we'll time out here. */
+    if (read(STDIN_FILENO, seq, 1) == 0) return ESC;
+    if (read(STDIN_FILENO, seq + 1, 1) == 0) return ESC;
+
+    /* ESC [ sequences. */
+    if (seq[0] == '[') {
+        if (seq[1] >= '0' && seq[1] <= '9') {
+            /* Extended escape, read additional byte. */
+            read(STDIN_FILENO, seq + 2, 1);
+            if (seq[2] == '~') {
+                if (seq[1] == '3') return DEL_KEY;
+                if (seq[1] == '5') return PAGE_UP;
+                if (seq[1] == '6') return PAGE_DOWN;
+            } else {
+                if (seq[1] == 'A') return ARROW_UP;
+                if (seq[1] == 'B') return ARROW_DOWN;
+                if (seq[1] == 'C') return ARROW_RIGHT;
+                if (seq[1] == 'D') return ARROW_LEFT;
+                if (seq[1] == 'H') return HOME_KEY;
+                if (seq[1] == 'F') return END_KEY;
+            }
+        }
+    }
+
+    /* ESC O sequences. */
+    if (seq[0] == 'O') {
+        if (seq[1] == 'H') return HOME_KEY;
+        if (seq[1] == 'F') return END_KEY;
+    }
+
+    /* Unknown ESC sequence. */
+    return -1;
+}
 
 int EditorReadKey(void) {
     char c;
     ssize_t bytes;
     while ((bytes = read(STDIN_FILENO, &c, 1)) == 0) {} /* Ensure there is some input to process */
+    if (bytes == -1) return -1; /* An error occurred */
 
-    switch (c) {
-    case ESC: // TODO
-        break;
-    default:
-        return c;
+    if (c == ESC) {
+        return EditorInterpretESC();
     }
+
+    /* Return the key entered by user. */
+    return c;
 }
 
 /**
  * Handle cursor position change when arrow keys are pressed.
  */
-void EditorMoveCursor(EditorData *e, int key) {}
+void EditorMoveCursor(const EditorData *e, const int key) {
+    switch (key) {
+
+    }
+}
 
 /* When the file is modified, requires Ctrl-Q to be pressed `KILO_QUIT_TIMES` times before quitting. */
 const int KILO_QUIT_TIMES = 3;
@@ -686,7 +741,10 @@ int EditorProcessInput(EditorData *e) {
         break;
     case CTRL_Q:
         if (e->f_info.dirty && quit_times) {
-            // TODO: Set message
+            EditorSetStatusMessage(e,
+            "WARNING!!! File has unsaved changes. "
+            "Press Ctrl-Q %d more times to quit.", quit_times
+            );
             quit_times--;
         }
         EditorClearScreen();
@@ -700,8 +758,10 @@ int EditorProcessInput(EditorData *e) {
     case PAGE_UP:
     case PAGE_DOWN:
         break;   // TODO
+    case CTRL_L:
+        EditorRefreshScreen(e);
+        break;
     case TAB:    // TODO
-    case CTRL_L: // TODO
     case KEY_NULL:
     case CTRL_C: /* Ignore Ctrl-C */
     case ESC:    /* Nothing to do for ESC in this mode. */
@@ -813,7 +873,8 @@ void EditorRefreshScreen(const EditorData *e) {
     BufferAppend(&buf, "\033[?25l", 0); /* Hide cursor. */
     BufferAppend(&buf, "\033[H", 0);    /* Go home. */
 
-    for (size_t i = 0; i < e->f_info.num_rows; i++) {
+    const int offset = e->f_info.row_offset;
+    for (int i = offset; i < e->screen_rows; i++) {
         const Row *row = &e->f_info.rows[i];
         const size_t len = row->rsize;
 
@@ -832,6 +893,7 @@ void EditorRefreshScreen(const EditorData *e) {
         }
 
         BufferAppend(&buf, "\033[39m", 0);
+        BufferAppend(&buf, "\033[0K", 0);
         BufferAppend(&buf, "\r\n", 0);
     }
 
@@ -846,6 +908,13 @@ void EditorRunLoop(EditorData *e) {
         EditorRefreshScreen(e);
         exit = EditorProcessInput(e);
     }
+}
+
+void EditorSetStatusMessage(EditorData *e, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    vsprintf(e->status, format, args);
+    va_end(args);
 }
 
 EditorData EditorInit(void) {
@@ -890,6 +959,7 @@ int main(int argc, char* argv[]) {
         DisableRawMode(&editor);
         return -1;
     }
+    EditorSetStatusMessage(&editor, "Kilo Editor -- version %s", KILO_VERSION);
 
     /* Run */
     EditorRunLoop(&editor);
