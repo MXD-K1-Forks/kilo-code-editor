@@ -409,30 +409,58 @@ void EditorClearScreen(void) {
 
 /* ========================================================================== */
 
+#define HL_MEM_SIZE sizeof(enum HL_Type) * row->rsize
+
+void HL_Set(const Row *row, const enum HL_Type hl,
+    const size_t start, const size_t end) {
+    for (size_t i = start; i < end; i++) {
+        row->hl[i] = hl;
+    }
+}
+
 /**
  * Set every byte of row->hl that corresponds to every character
  * in the row to the right syntax highlight type.
  */
 int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
-    enum HL_Type* tmp = realloc(row->hl, sizeof(enum HL_Type) * row->rsize);
+    enum HL_Type* tmp = realloc(row->hl, HL_MEM_SIZE);
     if (tmp == NULL) return -1;
     row->hl = tmp;
 
-    memset(row->hl, HL_NORMAL, sizeof(enum HL_Type) * row->rsize);
+    HL_Set(row, HL_NORMAL, 0, row->rsize);
 
     if (syntax == NULL) return 0; /* No syntax, everything is HL_NORMAL. */
 
     const char *lcs = syntax->line_comment_start;
     const char *mcs = syntax->multiline_comment_start;
     const char *mce = syntax->multiline_comment_end;
+    int flags = syntax->flags;
+
+    int in_string = 0;
+
     size_t i = 0;
+    size_t token_start = 0;
     char *p = row->render;
+
     while (*p) {
         /* Single line comments */
         if (strncmp(p, lcs, strlen(lcs)) == 0) {
-            memset(row->hl + i, HL_COMMENT, sizeof(enum HL_Type) * (row->rsize - i));
+            /* From here to end is a comment */
+            HL_Set(row, HL_COMMENT, i, row->rsize);
             break;
         }
+
+        if (flags & HL_HIGHLIGHT_STRINGS && (*p == '"' || *p == '\'')) {
+            in_string = (int) *p; /* we assign to *p in order to know the closing pair */
+            token_start = i;
+        } else if (in_string && *p == in_string) {
+            /* Check if the string is closed */
+            HL_Set(row, HL_STRING, token_start, i + 1);
+            in_string = 0;
+        }
+
+        /* Multiline comments */
+        // TODO
 
         p++;
         i++;
@@ -470,8 +498,6 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
  * Update the rendered version and the syntax highlight of a row.
  */
 int EditorUpdateRow(const EditorData *e, Row *row) {
-    /* tmp */
-
     char *tmp = realloc(row->render, row->size + 1);
     if (tmp == NULL) return -1;
     row->rsize = row->size;
@@ -482,9 +508,6 @@ int EditorUpdateRow(const EditorData *e, Row *row) {
 
     /* Update the syntax highlighting attributes of the row. */
     if (EditorUpdateSyntax(row, e->f_info.syntax) == -1) return -1;
-    for (size_t i = 0; i < row->rsize; i++) {
-        if (row->hl[i] >= HL_NORMAL && row->hl[i] <= HL_MATCH) exit(20);
-    }
 
     return 0;
 }
