@@ -34,6 +34,7 @@
  */
 
 #include <ctype.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -84,6 +85,7 @@ typedef struct {
 } Row;
 
 typedef struct {
+    char* name;
     char** file_extensions;
 
     char** keywords_t1;
@@ -174,6 +176,7 @@ typedef struct {
 HL_Syntax HL_DB[] = {
     /* C */
     {
+        "C",
         (char*[]) {".c", ".h", NULL},
         (char*[]) {
             "if", "else", "goto", "switch", "case", "default", "for", "while", "do", "break", "continue",
@@ -440,15 +443,15 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
     const char *mce = syntax->multiline_comment_end;
     int flags = syntax->flags;
 
-    int in_token = 0, in_string = 0, in_number = 0;
+    int in_token = 0, in_string = 0, in_number = 0, in_word = 0;
 
     size_t i = 0;
     size_t token_start = 0;
     char *p = row->render;
 
-    while (*p) {
+    while (1) {
         /* Handle non-printable chars. */
-        if (!isprint(*p)) {
+        if (!isprint(*p) && *p != '\0') {
             row->hl[i] = HL_NONPRINT;
             continue;
         }
@@ -460,7 +463,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             break;
         }
 
-        in_token = in_string || in_number;
+        in_token = in_string || in_number || in_word;
 
         /* Handle strings ("" and '') */
         if (flags & HL_HIGHLIGHT_STRINGS && !in_token && (*p == '"' || *p == '\'')) {
@@ -484,8 +487,21 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             in_number = 0;
         }
 
+        /* Handle keywords */
+        if (!in_token && (isalpha(*p) || *p == '_' || *p == '#')) {
+            /* '#' is a special case made to highlight c/c++ preprocessors. */
+            in_word = 1;
+            token_start = i;
+        } else if (in_word && !(isalnum(*p) || *p == '_')) {
+            HL_Set(row, HL_KEYWORD1, token_start, i);
+            in_word = 0;
+        }
+
         /* Handle multiline comments */
         // TODO
+
+        /* Check if we reached EOL */
+        if (*p == '\0') break;
 
         p++;
         i++;
