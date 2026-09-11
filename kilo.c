@@ -33,6 +33,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -436,7 +437,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
     const char *mce = syntax->multiline_comment_end;
     int flags = syntax->flags;
 
-    int in_string = 0;
+    int in_token = 0, in_string = 0, in_number = 0;
 
     size_t i = 0;
     size_t token_start = 0;
@@ -450,13 +451,24 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             break;
         }
 
-        if (flags & HL_HIGHLIGHT_STRINGS && !in_string && (*p == '"' || *p == '\'')) {
+        in_token = in_string || in_number;
+
+        if (flags & HL_HIGHLIGHT_STRINGS && !in_token && (*p == '"' || *p == '\'')) {
             in_string = (int) *p; /* we assign to *p in order to know the closing pair */
             token_start = i;
         } else if (in_string && *p == in_string) {
             /* Check if the string is closed */
             HL_Set(row, HL_STRING, token_start, i + 1);
             in_string = 0;
+        }
+
+        if (flags & HL_HIGHLIGHT_NUMBERS && !in_token && *p >= '0' && *p <= '9') {
+            in_number = 1; /* we assign to *p in order to know the closing pair */
+            token_start = i;
+        } else if (in_number && !(*p >= '0' && *p <= '9')) {
+            /* Check if the string is closed */
+            HL_Set(row, HL_NUMBER, token_start, i);
+            in_number = 0;
         }
 
         /* Multiline comments */
