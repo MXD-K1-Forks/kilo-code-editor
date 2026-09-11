@@ -68,8 +68,10 @@ enum HL_Type {
 };
 
 /* Flags */
-#define HL_HIGHLIGHT_STRINGS (1 << 0)
-#define HL_HIGHLIGHT_NUMBERS (1 << 1)
+#define HL_HIGHLIGHT_STRINGS             (1 << 0)
+#define HL_HIGHLIGHT_NUMBERS             (1 << 1)
+#define HL_HIGHLIGHT_NUMBER_LEADING_DOT  (1 << 2)
+#define HL_HIGHLIGHT_NUMBER_TRAILING_DOT (1 << 3)
 
 /* This structure represents a single line of the file we are editing. */
 typedef struct {
@@ -191,7 +193,8 @@ HL_Syntax HL_DB[] = {
             "#define", "#undef", "#warning", "#error", NULL
         },
         "//", "/*", "*/",
-        HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
+        HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS |
+            HL_HIGHLIGHT_NUMBER_LEADING_DOT | HL_HIGHLIGHT_NUMBER_TRAILING_DOT
     },
 };
 
@@ -470,10 +473,12 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
         }
 
         /* Handle numbers */
-        if (flags & HL_HIGHLIGHT_NUMBERS && !in_token && *p >= '0' && *p <= '9') {
+        int is_number = 0;
+        if (isdigit(*p)) is_number = 1;
+        if (flags & HL_HIGHLIGHT_NUMBERS && !in_token && is_number) {
             in_number = 1; /* we assign to *p in order to know the closing pair */
             token_start = i;
-        } else if (in_number && !(*p >= '0' && *p <= '9')) {
+        } else if (in_number && !is_number) {
             /* Check if the string is closed */
             HL_Set(row, HL_NUMBER, token_start, i);
             in_number = 0;
