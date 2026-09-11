@@ -444,6 +444,11 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
     char *p = row->render;
 
     while (*p) {
+        if (!isprint(*p)) {
+            row->hl[i] = HL_NONPRINT;
+            continue;
+        }
+
         /* Single line comments */
         if (strncmp(p, lcs, strlen(lcs)) == 0) {
             /* From here to end is a comment */
