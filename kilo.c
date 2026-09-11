@@ -450,7 +450,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             break;
         }
 
-        if (flags & HL_HIGHLIGHT_STRINGS && (*p == '"' || *p == '\'')) {
+        if (flags & HL_HIGHLIGHT_STRINGS && !in_string && (*p == '"' || *p == '\'')) {
             in_string = (int) *p; /* we assign to *p in order to know the closing pair */
             token_start = i;
         } else if (in_string && *p == in_string) {
