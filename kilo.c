@@ -444,12 +444,13 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
     char *p = row->render;
 
     while (*p) {
+        /* Handle non-printable chars. */
         if (!isprint(*p)) {
             row->hl[i] = HL_NONPRINT;
             continue;
         }
 
-        /* Single line comments */
+        /* Handle single line comments */
         if (strncmp(p, lcs, strlen(lcs)) == 0) {
             /* From here to end is a comment */
             HL_Set(row, HL_COMMENT, i, row->rsize);
@@ -458,6 +459,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
 
         in_token = in_string || in_number;
 
+        /* Handle strings ("" and '') */
         if (flags & HL_HIGHLIGHT_STRINGS && !in_token && (*p == '"' || *p == '\'')) {
             in_string = (int) *p; /* we assign to *p in order to know the closing pair */
             token_start = i;
@@ -467,6 +469,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             in_string = 0;
         }
 
+        /* Handle numbers */
         if (flags & HL_HIGHLIGHT_NUMBERS && !in_token && *p >= '0' && *p <= '9') {
             in_number = 1; /* we assign to *p in order to know the closing pair */
             token_start = i;
@@ -476,7 +479,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             in_number = 0;
         }
 
-        /* Multiline comments */
+        /* Handle multiline comments */
         // TODO
 
         p++;
