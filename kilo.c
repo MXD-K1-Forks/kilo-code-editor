@@ -716,20 +716,45 @@ int EditorReadKey(void) {
 void EditorMoveCursor(EditorData *e, const int key) {
     FileInfo *f = &e->f_info;
 
+    const size_t cur_row_idx = f->row_offset + f->cy;
+    const size_t cur_col_idx = f->col_offset + f->cx;
+
+    Row *row = cur_row_idx >= f->num_rows ? NULL : &f->rows[cur_row_idx];
+
     switch (key) {
     case ARROW_LEFT:
-    case ARROW_RIGHT:
+        if (f->cx) { f->cx--; break; }
+        if (f->col_offset) { f->col_offset--; break; }
+        if (cur_row_idx <= 0) { break; }
+        f->cy--; f->cx = (int) f->rows[cur_row_idx - 1].size;
+        if (f->cx > e->screen_cols - 1) {
+            f->col_offset = f->cx - e->screen_cols + 1;
+            f->cx = e->screen_cols - 1;
+        }
         break;
-    case ARROW_DOWN:
-        if ((size_t) f->row_offset + f->cy > f->num_rows) { break; }
+    case ARROW_RIGHT:
+        if (!row) { break; }
+        if (cur_col_idx > row->size) { break; }
+        if (cur_col_idx < row->size && f->cx == e->screen_cols - 1)
+            { f->col_offset++; break; }
+        if (cur_col_idx < row->size) { f->cx++; break; }
+        f->cx = 0; f->col_offset = 0;
         if (f->cy == e->screen_rows - 1) { f->row_offset++; break; }
         f->cy++; break;
-    case ARROW_UP: // TODO: fix a bug
-        if (f->cy == 0 && f->row_offset) { f->row_offset--; break; }
-        f->cy--; break;
+    case ARROW_DOWN:
+        if (cur_row_idx >= f->num_rows) { break; }
+        if (f->cy == e->screen_rows - 1) { f->row_offset++; break; }
+        f->cy++; break;
+    case ARROW_UP:
+        if (f->cy) { f->cy--; break; }
+        if (f->row_offset) { f->row_offset--; break; }
+        break;
     default:
         break;
     }
+
+    /* Fix cx if the current line has not enough chars. */
+    // TODO
 }
 
 /* When the file is modified, requires Ctrl-Q to be pressed `KILO_QUIT_TIMES` times before quitting. */
@@ -893,13 +918,14 @@ void EditorRefreshScreen(const EditorData *e) {
     BufferAppend(&buf, "\033[?25l", 0); /* Hide cursor. */
     BufferAppend(&buf, "\033[H", 0);    /* Go home. */
 
-    const int offset = e->f_info.row_offset;
-    for (int i = offset; i < e->screen_rows; i++) {
+    const int row_offset = e->f_info.row_offset;
+    for (int i = row_offset; i < e->screen_rows; i++) {
         const Row *row = &e->f_info.rows[i];
-        const size_t len = row->rsize;
-
+        const size_t len = row->rsize - e->f_info.col_offset;
         int current_color = 37;
-        for (size_t j = 0; j < len; j++) {
+
+        const int col_offset = e->f_info.col_offset;
+        for (size_t j = col_offset; j < len; j++) {
             int color = EditorMapSyntaxToColor(row->hl[j]);
             if (color != current_color) {
                 current_color = color;
