@@ -716,9 +716,8 @@ int EditorReadKey(void) {
 void EditorMoveCursor(EditorData *e, const int key) {
     FileInfo *f = &e->f_info;
 
-    const size_t cur_row_idx = f->row_offset + f->cy;
-    const size_t cur_col_idx = f->col_offset + f->cx;
-
+    size_t cur_row_idx = f->row_offset + f->cy;
+    size_t cur_col_idx = f->col_offset + f->cx;
     Row *row = cur_row_idx >= f->num_rows ? NULL : &f->rows[cur_row_idx];
 
     switch (key) {
@@ -784,7 +783,30 @@ void EditorMoveCursor(EditorData *e, const int key) {
     }
 
     /* Fix cx if the current line has not enough chars. */
-    // TODO
+    cur_row_idx = f->row_offset + f->cy;
+    cur_col_idx = f->col_offset + f->cx;
+    row = cur_row_idx >= f->num_rows ? NULL : &f->rows[cur_row_idx];
+    const size_t row_len = row ? row->size : 0;
+    if (cur_col_idx <= row_len) return;
+    f->cx -= (int) (cur_col_idx - row_len);
+    if (f-> cx < 0) {
+        f->col_offset += f->cx;
+        f->cx = 0;
+    }
+}
+
+void EditorHandlePageKeys(EditorData *e, const int key) {
+    if (key == PAGE_UP && e->f_info.cy != 0) {
+        e->f_info.cy = 0;
+    }
+    else if (key == PAGE_DOWN && e->f_info.cy != e->screen_rows - 1) {
+        e->f_info.cy = e->screen_rows - 1;
+    }
+
+    int times = e->screen_rows;
+    while(times--) {
+        EditorMoveCursor(e, key == PAGE_UP ? ARROW_UP: ARROW_DOWN);
+    }
 }
 
 /* When the file is modified, requires Ctrl-Q to be pressed `KILO_QUIT_TIMES` times before quitting. */
@@ -825,6 +847,7 @@ int EditorProcessInput(EditorData *e) {
         break;
     case PAGE_UP:
     case PAGE_DOWN:
+        EditorHandlePageKeys(e, key);
         break;   // TODO
     case CTRL_L:
         EditorRefreshScreen(e);
@@ -948,9 +971,9 @@ void EditorRefreshScreen(const EditorData *e) {
     BufferAppend(&buf, "\033[?25l", 0); /* Hide cursor. */
     BufferAppend(&buf, "\033[H", 0);    /* Go home. */
 
-    const int row_offset = e->f_info.row_offset;
-    for (int i = row_offset; i < e->screen_rows; i++) {
-        const Row *row = &e->f_info.rows[i];
+    for (int i = 0; i < e->screen_rows; i++) {
+        const int row_start = e->f_info.row_offset + i;
+        const Row *row = &e->f_info.rows[row_start];
         const size_t len = row->rsize - e->f_info.col_offset;
         int current_color = 37;
 
