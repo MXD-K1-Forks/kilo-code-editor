@@ -723,31 +723,61 @@ void EditorMoveCursor(EditorData *e, const int key) {
 
     switch (key) {
     case ARROW_LEFT:
-        if (f->cx) { f->cx--; break; }
-        if (f->col_offset) { f->col_offset--; break; }
-        if (cur_row_idx <= 0) { break; }
-        f->cy--; f->cx = (int) f->rows[cur_row_idx - 1].size;
+        if (f->cx) {
+            f->cx--;
+            break;
+        }
+
+        if (f->col_offset) {
+            f->col_offset--;
+            break;
+        }
+
+        if (cur_row_idx <= 0) break;
+
+        f->cy--;
+        f->cx = (int) f->rows[cur_row_idx - 1].size;
+
         if (f->cx > e->screen_cols - 1) {
             f->col_offset = f->cx - e->screen_cols + 1;
             f->cx = e->screen_cols - 1;
         }
+
         break;
     case ARROW_RIGHT:
-        if (!row) { break; }
-        if (cur_col_idx > row->size) { break; }
-        if (cur_col_idx < row->size && f->cx == e->screen_cols - 1)
-            { f->col_offset++; break; }
-        if (cur_col_idx < row->size) { f->cx++; break; }
+        if (!row) break;
+        if (cur_col_idx > row->size) break;
+
+        if (cur_col_idx < row->size && f->cx == e->screen_cols - 1) {
+            f->col_offset++;
+            break;
+        }
+
+        if (cur_col_idx < row->size) {
+            f->cx++;
+            break;
+        }
+
         f->cx = 0; f->col_offset = 0;
-        if (f->cy == e->screen_rows - 1) { f->row_offset++; break; }
-        f->cy++; break;
+        if (f->cy == e->screen_rows - 1) {
+            f->row_offset++;
+            break;
+        }
+
+        f->cy++;
+        break;
     case ARROW_DOWN:
-        if (cur_row_idx >= f->num_rows) { break; }
-        if (f->cy == e->screen_rows - 1) { f->row_offset++; break; }
-        f->cy++; break;
+        if (cur_row_idx >= f->num_rows) break;
+        if (f->cy == e->screen_rows - 1) {
+            f->row_offset++;
+            break;
+        }
+
+        f->cy++;
+        break;
     case ARROW_UP:
-        if (f->cy) { f->cy--; break; }
-        if (f->row_offset) { f->row_offset--; break; }
+        if (f->cy) f->cy--;
+        else if (f->row_offset) f->row_offset--;
         break;
     default:
         break;
