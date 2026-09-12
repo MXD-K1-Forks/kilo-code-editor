@@ -107,7 +107,7 @@ typedef struct {
     size_t num_rows;   /* Number of rows in the file */
     Row* rows;         /* Rows */
     int dirty;         /* File modified but not saved. */
-    char* filename;    /* Currently open filename */
+    char* name;    /* Currently open filename */
     int is_crlf;       /* Does file lines end with CRLF? */
     HL_Syntax *syntax; /* Current syntax highlight, or NULL. */
 } FileInfo;
@@ -644,8 +644,13 @@ void EditorDelChar(EditorData *e) {}
  * the final null terminator. (Not updated)
  */
 int EditorRowsToString(const EditorData *e, Buffer *buf) {
+    char* line_ending;
+    if (e->f_info.is_crlf) line_ending = "\r\n";
+    else line_ending = "\n";
+
     for (size_t i = 0; i < e->f_info.num_rows; i++) {
         if (BufferAppend(buf, e->f_info.rows[i].chars, 0) == -1) return -1;
+        if (BufferAppend(buf, line_ending, 0) == -1) return -1;
     }
     BufferAppendNull(buf);
     return 0;
@@ -656,7 +661,7 @@ int EditorRowsToString(const EditorData *e, Buffer *buf) {
 /* ========================= Editor events handling  ======================== */
 
 void EditorFind(EditorData *e);
-void FileSave(const EditorData *e);
+int FileSave(EditorData *e);
 void EditorRefreshScreen(const EditorData *e);
 
 int EditorInterpretESC(void) {
@@ -875,7 +880,7 @@ int EditorProcessInput(EditorData *e) {
 /* ========================================================================== */
 
 int FileLoadContents(EditorData *e) {
-    FILE *fp = fopen(e->f_info.filename, "r");
+    FILE *fp = fopen(e->f_info.name, "r");
     if (fp == NULL) return -1;
 
     char *line = NULL;
@@ -915,7 +920,7 @@ void FileSelectSyntax(EditorData *e) {
 
             /* Compare extensions only if filename starts with a dot */
             if (ext && ext[0] == '.') {
-                const char* f_ext = strrchr(e->f_info.filename, '.');
+                const char* f_ext = strrchr(e->f_info.name, '.');
                 if (f_ext == NULL) continue;
                 if (strcmp(ext, f_ext) == 0) {
                     e->f_info.syntax = &HL_DB[i];
@@ -924,7 +929,7 @@ void FileSelectSyntax(EditorData *e) {
             }
 
             /* Otherwise, compare the whole name against the filename */
-            if (ext && strcmp(ext, e->f_info.filename) == 0) {
+            if (ext && strcmp(ext, e->f_info.name) == 0) {
                 e->f_info.syntax = &HL_DB[i];
                 return;
             }
@@ -933,7 +938,7 @@ void FileSelectSyntax(EditorData *e) {
 }
 
 void EditorDestroy(const EditorData *e) {
-    free(e->f_info.filename);
+    free(e->f_info.name);
     for (size_t  i = 0; i < e->f_info.num_rows; i++) {
         EditorFreeRow(&e->f_info.rows[i]);
     }
@@ -948,7 +953,7 @@ int FileLoad(EditorData *e, const char* filename) {
         .cx = 0, .cy = 0,
         .row_offset = 0,
         .col_offset = 0,
-        .filename = fn,
+        .name = fn,
         .num_rows = 0,
         .syntax = NULL,
         .rows = NULL,
@@ -961,7 +966,21 @@ int FileLoad(EditorData *e, const char* filename) {
     return 0;
 }
 
-void FileSave(const EditorData *e) {}
+int FileSave(EditorData *e) {
+    Buffer data = BufferCreate();
+    EditorRowsToString(e, &data);
+    BufferAppendNull(&data);
+
+    FILE *fp = fopen(e->f_info.name, "w");
+    if (fp == NULL) return -1;
+    fwrite(data.str, 1, data.len, fp);
+
+    EditorSetStatusMessage(e, "%lu bytes written on disk", data.len);
+    e->f_info.dirty = 0;
+    BufferFree(&data);
+    fclose(fp);
+    return 0;
+}
 
 /* This function writes the whole screen using VT100 escape characters
  * starting from the logical state of the editor in the 'e'. */
