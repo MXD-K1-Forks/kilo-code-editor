@@ -1015,6 +1015,29 @@ void EditorRefreshScreen(const EditorData *e) {
         BufferAppend(&buf, "\r\n", 0);
     }
 
+    /* Create a two rows status */
+    char file_info[60], line_tracker[60]; // TODO: find better names
+
+    /* First: */
+    sprintf(file_info, "%.30s %s", e->f_info.name, e->f_info.dirty ? "- (modified)" : "");
+    sprintf(line_tracker, "%d/%lu - %.30s ", e->f_info.row_offset + e->f_info.cy + 1,
+        e->f_info.num_rows, e->f_info.syntax->name);
+    size_t cols = e->screen_cols - strlen(file_info) - strlen(line_tracker);
+
+    BufferAppend(&buf, "\033[0K", 0);
+    BufferAppend(&buf, "\033[7m", 0);
+    BufferAppend(&buf, file_info, 0);
+    while (cols--) {
+        BufferAppend(&buf, " ", 0);
+    }
+    BufferAppend(&buf, line_tracker, 0);
+    BufferAppend(&buf, "\033[0m", 0);
+    BufferAppend(&buf, "\r\n", 0);
+
+    /* Second: */
+    BufferAppend(&buf, "\033[0K", 0);
+    BufferAppend(&buf, e->status, 0);
+
     /* Restore cursor position */
     char tmp[28];
     sprintf(tmp, "\033[%d;%dH",e->f_info.cy + 1, e->f_info.cx);
