@@ -1002,7 +1002,7 @@ void EditorRefreshScreen(const EditorData *e) {
 
         const int col_offset = e->f_info.col_offset;
         for (size_t j = col_offset; j < len; j++) {
-            int color = EditorMapSyntaxToColor(row->hl[j]);
+            const int color = EditorMapSyntaxToColor(row->hl[j]);
             if (color != current_color) {
                 current_color = color;
 
@@ -1048,7 +1048,7 @@ void EditorRefreshScreen(const EditorData *e) {
 
     /* Restore cursor position */
     char tmp[28];
-    snprintf(tmp, sizeof(tmp), "\033[%d;%dH",e->f_info.cy + 1, e->f_info.cx);
+    snprintf(tmp, sizeof(tmp), "\033[%d;%dH", e->f_info.cy + 1, e->f_info.cx);
     BufferAppend(&buf, tmp, 0);
 
     BufferAppend(&buf, "\033[?25h", 0); /* Show cursor. */
