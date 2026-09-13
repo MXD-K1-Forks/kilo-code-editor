@@ -6,6 +6,9 @@ all: old-kilo kilo
 kilo: kilo.c
 	$(CC) kilo.c $(CFlags) -o kilo
 
+debug-kilo: kilo.c
+	$(CC) kilo.c $(CFlags) -g -O0 -o kilo
+
 old-kilo: old-kilo.c
 	$(CC) old-kilo.c $(CFlags) -o old-kilo
 

@@ -853,7 +853,7 @@ int EditorProcessInput(EditorData *e) {
     case PAGE_UP:
     case PAGE_DOWN:
         EditorHandlePageKeys(e, key);
-        break;   // TODO
+        break;
     case CTRL_L:
         EditorRefreshScreen(e);
         break;
@@ -968,12 +968,16 @@ int FileLoad(EditorData *e, const char* filename) {
 
 int FileSave(EditorData *e) {
     Buffer data = BufferCreate();
-    EditorRowsToString(e, &data);
+    if (EditorRowsToString(e, &data) == -1) return -1;
     BufferAppendNull(&data);
 
     FILE *fp = fopen(e->f_info.name, "w");
     if (fp == NULL) return -1;
-    fwrite(data.str, 1, data.len, fp);
+    const size_t bytes = fwrite(data.str, 1, data.len, fp);
+    if (bytes != data.len) {
+        fclose(fp);
+        return -1;
+    }
 
     EditorSetStatusMessage(e, "%lu bytes written on disk", data.len);
     e->f_info.dirty = 0;
@@ -1024,7 +1028,7 @@ void EditorRefreshScreen(const EditorData *e) {
         );
     snprintf(line_tracker, sizeof(line_tracker), "%d/%lu - %.30s ",
         e->f_info.row_offset + e->f_info.cy + 1,
-        e->f_info.num_rows, e->f_info.syntax->name
+        e->f_info.num_rows, e->f_info.syntax->name ? e->f_info.syntax->name : "Unrecognized"
         );
     size_t cols = e->screen_cols - strlen(file_info) - strlen(line_tracker);
 
