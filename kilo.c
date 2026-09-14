@@ -995,8 +995,14 @@ void EditorRefreshScreen(const EditorData *e) {
     BufferAppend(&buf, "\033[H", 0);    /* Go home. */
 
     for (int i = 0; i < e->screen_rows; i++) {
-        const int row_start = e->f_info.row_offset + i;
-        const Row *row = &e->f_info.rows[row_start];
+        const size_t row_start = e->f_info.row_offset + i;
+        const Row *row;
+        if (row_start < e->f_info.num_rows) {
+            row = &e->f_info.rows[row_start];
+        } else {
+            row = &(Row) {row_start, 0, 0, "", "", NULL};
+        }
+
         const size_t len = row->rsize - e->f_info.col_offset;
         int current_color = 37;
 
@@ -1028,7 +1034,7 @@ void EditorRefreshScreen(const EditorData *e) {
         );
     snprintf(line_tracker, sizeof(line_tracker), "%d/%lu - %.30s ",
         e->f_info.row_offset + e->f_info.cy + 1,
-        e->f_info.num_rows, e->f_info.syntax->name ? e->f_info.syntax->name : "Unrecognized"
+        e->f_info.num_rows, e->f_info.syntax ? e->f_info.syntax->name : "Unrecognized"
         );
     size_t cols = e->screen_cols - strlen(file_info) - strlen(line_tracker);
 
