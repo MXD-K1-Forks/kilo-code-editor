@@ -608,6 +608,15 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
 /* ======================= Editor rows implementation ======================= */
 
 /**
+ * Free row's heap allocated stuff.
+ */
+void EditorFreeRow(const Row *row) {
+    free(row->render);
+    free(row->chars);
+    free(row->hl);
+}
+
+/**
  * Update the rendered version and the syntax highlight of a row.
  */
 int EditorUpdateRow(const EditorData *e, Row *row) {
@@ -650,7 +659,7 @@ int EditorInsertRow(EditorData *e, const size_t at, const char *s, const size_t 
     char* tmp_str = malloc(len + 1);
     if (tmp_str == NULL) return -1;
     e->f_info.rows[at].chars = tmp_str;
-    memcpy(e->f_info.rows[at].chars, s, len + 1);
+    memcpy(e->f_info.rows[at].chars, s, len + 1); /* Including the null terminator. */
 
     if (EditorUpdateRow(e, &e->f_info.rows[at]) == -1) return -1;
     e->f_info.num_rows++;
@@ -658,11 +667,38 @@ int EditorInsertRow(EditorData *e, const size_t at, const char *s, const size_t 
     return 0;
 }
 
-/* Remove the row at the specified position, shifting the remaining on the top. */
-void EditorDelRow(EditorData *e, size_t at) {}
+/**
+ * Remove the row at the specified position, shifting the remaining on the top.
+ */
+void EditorDelRow(EditorData *e, const size_t at) {
+    if (at >= e->f_info.num_rows) return;
 
-/* Insert the specified char at the current prompt position. */
-void EditorRowInsertChar(EditorData *e, Row *row, size_t at, int c) {}
+    EditorFreeRow(&e->f_info.rows[at]);
+    memmove(e->f_info.rows + at, e->f_info.rows + at - 1,
+        sizeof(Row) * (e->f_info.num_rows - at - 1));
+
+    for (size_t i = at; i < e->f_info.num_rows - 1; i++) { e->f_info.rows[i].idx--; }
+
+    e->f_info.num_rows--;
+    e->f_info.dirty++;
+}
+
+/**
+ * Insert a character at the specified position in a row,
+ * moving the remaining chars on the right if needed.
+ */
+int EditorRowInsertChar(const EditorData *e, Row *row, const size_t at, const int c) {
+    char* tmp = realloc(row->chars, row->size + 2); /* For the character and the null terminator. */
+    if (tmp == NULL) return -1;
+    row->chars = tmp;
+    row->size++;
+
+    memmove(row->chars + at + 1, row->chars + at, row->size - at + 1); /* Including the null terminator */
+    memset(row->chars + at, c, 1);
+
+    if (EditorUpdateRow(e, row)) return -1;
+    return 0;
+}
 
 /* Delete the character at offset 'at' from the specified row. */
 void EditorRowDelChar(EditorData *e, Row *row, size_t at) {}
@@ -697,15 +733,6 @@ int EditorRowsToString(const EditorData *e, Buffer *buf) {
     }
     BufferAppendNull(buf);
     return 0;
-}
-
-/**
- * Free row's heap allocated stuff.
- */
-void EditorFreeRow(const Row *row) {
-    free(row->render);
-    free(row->chars);
-    free(row->hl);
 }
 
 /* ========================================================================== */
