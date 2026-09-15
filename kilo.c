@@ -39,6 +39,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <unistd.h>
+#include <time.h>
 
 #if _WIN32
 #include <windows.h>
@@ -107,7 +108,7 @@ typedef struct {
     size_t num_rows;   /* Number of rows in the file */
     Row* rows;         /* Rows */
     int dirty;         /* File modified but not saved. */
-    char* name;    /* Currently open filename */
+    char* name;        /* Currently open filename */
     int is_crlf;       /* Does file lines end with CRLF? */
     HL_Syntax *syntax; /* Current syntax highlight, or NULL. */
 } FileInfo;
@@ -118,7 +119,10 @@ typedef struct {
     int in_raw_mode;   /* Is terminal raw mode enabled? */
     FileInfo f_info;   /* Currently open file data */
     char status[128];  /* Status message/info buffer */
+    time_t msg_timer;
 } EditorData;
+
+const int status_timeout = 5;
 
 enum KEY_ACTION {
     KEY_NULL = 0,       /* NULL */
@@ -1072,7 +1076,9 @@ int EditorRefreshScreen(const EditorData *e) {
 
     /* Second: */
     BUFFER_APPEND_SAFE(&buf, "\033[0K", 0);
-    BUFFER_APPEND_SAFE(&buf, e->status, 0);
+    if (time(NULL) - e->msg_timer < status_timeout) {
+        BUFFER_APPEND_SAFE(&buf, e->status, 0);
+    }
 
     /* Restore cursor position */
     char tmp[28];
@@ -1097,6 +1103,8 @@ void EditorSetStatusMessage(EditorData *e, const char *format, ...) {
     va_start(args, format);
     vsnprintf(e->status, sizeof(e->status), format, args);
     va_end(args);
+
+    e->msg_timer = time(NULL);
 }
 
 EditorData EditorInit(void) {
