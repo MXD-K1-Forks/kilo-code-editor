@@ -51,7 +51,7 @@
 
 #define KILO_VERSION "0.0.2"
 
-#define EXIT_SIGNAL 1 /* Used to signal program end */
+#define EXIT_SIGNAL (-1) /* Used to signal program end */
 
 /* Syntax highlight types */
 enum HL_Type {
@@ -152,6 +152,12 @@ typedef struct {
     char* str;
     size_t len;
 } Buffer;
+
+#define BUFFER_APPEND_SAFE(buf, str, len) \
+    do { \
+        if (BufferAppend(buf, str, len) == -1) \
+            return -1; \
+    } while (0)
 
 __attribute__((format(printf, 2, 3)))
 void EditorSetStatusMessage(EditorData *e, const char *format, ...);
@@ -264,7 +270,7 @@ int EnableRawMode(EditorData *e) {
 
     #ifdef _WIN32
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
-    if (h == INVALID_HANDLE_VALUE) return 1;
+    if (h == INVALID_HANDLE_VALUE) return -1;
 
     if (!GetConsoleMode(h, &terminal_mode)) return -1;
 
@@ -316,7 +322,7 @@ int DisableRawMode(EditorData *e) {
 
     #ifdef _WIN32
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
-    if (h == INVALID_HANDLE_VALUE) return 1;
+    if (h == INVALID_HANDLE_VALUE) return -1;
 
     if (!SetConsoleMode(h, terminal_mode)) return -1;
     #endif
@@ -414,12 +420,13 @@ int UpdateWindowSize(EditorData *e) {
     return 0;
 }
 
-void EditorClearScreen(void) {
+int EditorClearScreen(void) {
     Buffer buf = BufferCreate();
-    BufferAppend(&buf, "\033[2J", 0);
-    BufferAppend(&buf, "\033[H", 0);
+    BUFFER_APPEND_SAFE(&buf, "\033[2J", 0);
+    BUFFER_APPEND_SAFE(&buf, "\033[H", 0);
     write(STDOUT_FILENO, buf.str, buf.len);
     BufferFree(&buf);
+    return 0;
 }
 
 /* ========================================================================== */
@@ -655,8 +662,8 @@ int EditorRowsToString(const EditorData *e, Buffer *buf) {
     else line_ending = "\n";
 
     for (size_t i = 0; i < e->f_info.num_rows; i++) {
-        if (BufferAppend(buf, e->f_info.rows[i].chars, 0) == -1) return -1;
-        if (BufferAppend(buf, line_ending, 0) == -1) return -1;
+        BUFFER_APPEND_SAFE(buf, e->f_info.rows[i].chars, 0);
+        BUFFER_APPEND_SAFE(buf, line_ending, 0);
     }
     BufferAppendNull(buf);
     return 0;
@@ -675,7 +682,7 @@ void EditorFreeRow(const Row *row) {
 
 void EditorFind(EditorData *e);
 int FileSave(EditorData *e);
-void EditorRefreshScreen(const EditorData *e);
+int EditorRefreshScreen(const EditorData *e);
 
 int EditorInterpretESC(void) {
     char seq[3];
@@ -1003,11 +1010,11 @@ int FileSave(EditorData *e) {
 
 /* This function writes the whole screen using VT100 escape characters
  * starting from the logical state of the editor in the 'e'. */
-void EditorRefreshScreen(const EditorData *e) {
+int EditorRefreshScreen(const EditorData *e) {
     Buffer buf = BufferCreate();
 
-    BufferAppend(&buf, "\033[?25l", 0); /* Hide cursor. */
-    BufferAppend(&buf, "\033[H", 0);    /* Go home. */
+    BUFFER_APPEND_SAFE(&buf, "\033[?25l", 0); /* Hide cursor. */
+    BUFFER_APPEND_SAFE(&buf, "\033[H", 0);    /* Go home. */
 
     for (int i = 0; i < e->screen_rows; i++) {
         const size_t row_start = e->f_info.row_offset + i;
@@ -1029,15 +1036,15 @@ void EditorRefreshScreen(const EditorData *e) {
 
                 char tmp[8];
                 snprintf(tmp, sizeof(tmp), "\033[%dm", current_color);
-                BufferAppend(&buf, tmp, 0);
+                BUFFER_APPEND_SAFE(&buf, tmp, 0);
             }
 
-            BufferAppend(&buf, row->render + j, 1);
+            BUFFER_APPEND_SAFE(&buf, row->render + j, 1);
         }
 
-        BufferAppend(&buf, "\033[39m", 0);
-        BufferAppend(&buf, "\033[0K", 0);
-        BufferAppend(&buf, "\r\n", 0);
+        BUFFER_APPEND_SAFE(&buf, "\033[39m", 0);
+        BUFFER_APPEND_SAFE(&buf, "\033[0K", 0);
+        BUFFER_APPEND_SAFE(&buf, "\r\n", 0);
     }
 
     /* Create a two rows status */
@@ -1053,35 +1060,35 @@ void EditorRefreshScreen(const EditorData *e) {
         );
     size_t cols = e->screen_cols - strlen(file_info) - strlen(line_tracker);
 
-    BufferAppend(&buf, "\033[0K", 0);
-    BufferAppend(&buf, "\033[7m", 0);
-    BufferAppend(&buf, file_info, 0);
+    BUFFER_APPEND_SAFE(&buf, "\033[0K", 0);
+    BUFFER_APPEND_SAFE(&buf, "\033[7m", 0);
+    BUFFER_APPEND_SAFE(&buf, file_info, 0);
     while (cols--) {
-        BufferAppend(&buf, " ", 0);
+        BUFFER_APPEND_SAFE(&buf, " ", 0);
     }
-    BufferAppend(&buf, line_tracker, 0);
-    BufferAppend(&buf, "\033[0m", 0);
-    BufferAppend(&buf, "\r\n", 0);
+    BUFFER_APPEND_SAFE(&buf, line_tracker, 0);
+    BUFFER_APPEND_SAFE(&buf, "\033[0m", 0);
+    BUFFER_APPEND_SAFE(&buf, "\r\n", 0);
 
     /* Second: */
-    BufferAppend(&buf, "\033[0K", 0);
-    BufferAppend(&buf, e->status, 0);
+    BUFFER_APPEND_SAFE(&buf, "\033[0K", 0);
+    BUFFER_APPEND_SAFE(&buf, e->status, 0);
 
     /* Restore cursor position */
     char tmp[28];
     snprintf(tmp, sizeof(tmp), "\033[%d;%dH", e->f_info.cy + 1, e->f_info.cx);
-    BufferAppend(&buf, tmp, 0);
+    BUFFER_APPEND_SAFE(&buf, tmp, 0);
 
-    BufferAppend(&buf, "\033[?25h", 0); /* Show cursor. */
+    BUFFER_APPEND_SAFE(&buf, "\033[?25h", 0); /* Show cursor. */
     write(STDOUT_FILENO, buf.str, buf.len);
     BufferFree(&buf);
+    return 0;
 }
 
 void EditorRunLoop(EditorData *e) {
-    int exit = 0;
-    while (exit != EXIT_SIGNAL) {
-        EditorRefreshScreen(e);
-        exit = EditorProcessInput(e);
+    while (1) {
+        if (EditorRefreshScreen(e) == EXIT_SIGNAL) break;
+        if (EditorProcessInput(e) == EXIT_SIGNAL) break;
     }
 }
 
