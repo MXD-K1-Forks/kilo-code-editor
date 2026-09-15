@@ -993,18 +993,23 @@ int FileLoad(EditorData *e, const char* filename) {
 }
 
 int FileSave(EditorData *e) {
-    Buffer data = BufferCreate();
-    if (EditorRowsToString(e, &data) == -1) return -1;
-
     FILE *fp = fopen(e->f_info.name, "w");
     if (fp == NULL) return -1;
+
+    Buffer data = BufferCreate();
+    if (EditorRowsToString(e, &data) == -1) {
+        BufferFree(&data);
+        fclose(fp);
+        return -1;
+    }
+
     const size_t bytes = fwrite(data.str, 1, data.len, fp);
     if (bytes != data.len) {
         fclose(fp);
         return -1;
     }
 
-    EditorSetStatusMessage(e, "%lu bytes written on disk", data.len);
+    EditorSetStatusMessage(e, "%zu bytes written on disk", data.len);
     e->f_info.dirty = 0;
     BufferFree(&data);
     fclose(fp);
