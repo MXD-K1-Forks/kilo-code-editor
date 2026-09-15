@@ -52,7 +52,7 @@
 
 #define KILO_VERSION "0.0.2"
 
-#define EXIT_SIGNAL (-1) /* Used to signal program end */
+#define EXIT_SIGNAL 1 /* Used to signal program end */
 
 /* Syntax highlight types */
 enum HL_Type {
@@ -835,7 +835,7 @@ void EditorMoveCursor(EditorData *e, const int key) {
         break;
     }
 
-    /* Fix cx if the current line has not enough chars. */
+    /* Fix cx if the current line has no enough chars. */
     cur_row_idx = f->row_offset + f->cy;
     cur_col_idx = f->col_offset + f->cx;
     row = cur_row_idx >= f->num_rows ? NULL : &f->rows[cur_row_idx];
@@ -901,8 +901,7 @@ int EditorProcessInput(EditorData *e) {
         EditorHandlePageKeys(e, key);
         break;
     case CTRL_L:
-        EditorRefreshScreen(e);
-        break;
+        return EditorRefreshScreen(e);
     case TAB:    // TODO
     case KEY_NULL:
     case CTRL_C: /* Ignore Ctrl-C */
@@ -991,9 +990,13 @@ void EditorDestroy(const EditorData *e) {
     free(e->f_info.rows);
 }
 
+/**
+ * Load the specified file on disk to the editor memory.
+ * @return 0 on success or -1 on error.
+ */
 int FileLoad(EditorData *e, const char* filename) {
     char* fn = malloc(strlen(filename) + 1);
-    if (fn == NULL) exit(1);
+    if (fn == NULL) return -1;
     strcpy(fn, filename);
 
     e->f_info = (FileInfo) {
@@ -1013,6 +1016,10 @@ int FileLoad(EditorData *e, const char* filename) {
     return 0;
 }
 
+/**
+ * Save the current file to disk.
+ * @return 0 on success, -1 on error.
+ */
 int FileSave(EditorData *e) {
     FILE *fp = fopen(e->f_info.name, "w");
     if (fp == NULL) return -1;
@@ -1037,8 +1044,10 @@ int FileSave(EditorData *e) {
     return 0;
 }
 
-/* This function writes the whole screen using VT100 escape characters
- * starting from the logical state of the editor in the 'e'. */
+/**
+ * This function writes the whole screen using VT100 escape characters
+ * starting from the logical state of the editor in the 'e'.
+ */
 int EditorRefreshScreen(const EditorData *e) {
     Buffer buf = BufferCreate();
 
@@ -1111,18 +1120,25 @@ int EditorRefreshScreen(const EditorData *e) {
     BUFFER_APPEND_SAFE(&buf, tmp, 0);
 
     BUFFER_APPEND_SAFE(&buf, "\033[?25h", 0); /* Show cursor. */
-    write(STDOUT_FILENO, buf.str, buf.len);
+    if (write(STDOUT_FILENO, buf.str, buf.len) != (ssize_t) buf.len) return -1;
     BufferFree(&buf);
     return 0;
 }
 
-void EditorRunLoop(EditorData *e) {
+int EditorRunLoop(EditorData *e) {
+    int exit = 0;
     while (1) {
-        if (EditorRefreshScreen(e) == EXIT_SIGNAL) break;
-        if (EditorProcessInput(e) == EXIT_SIGNAL) break;
+        if (EditorRefreshScreen(e) == -1) return -1;
+        if ((exit = EditorProcessInput(e)) == -1) return -1;
+        if (exit == EXIT_SIGNAL) break;
     }
+    return 0;
 }
 
+/**
+ * Set an editor status message for the second line of the status,
+ * at the end of the screen.
+ */
 void EditorSetStatusMessage(EditorData *e, const char *format, ...) {
     va_list args;
     va_start(args, format);
@@ -1178,11 +1194,12 @@ int main(int argc, char* argv[]) {
     EditorSetStatusMessage(&editor, "Kilo Editor -- version %s", KILO_VERSION);
 
     /* Run */
-    EditorRunLoop(&editor);
+    int status = EditorRunLoop(&editor);
+    if (status == -1) status = 1;  /* Please don't ask why */
 
     /* Undo changes and exit */
     DisableRawMode(&editor);
     EditorDestroy(&editor);
 
-    return 0;
+    return status;
 }
