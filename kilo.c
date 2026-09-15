@@ -83,6 +83,7 @@ typedef struct {
     char* chars;        /* Row content. */
     char* render;       /* Row content "rendered" for screen (for TABs). */
     enum HL_Type* hl;   /* Syntax highlight type for each character in render.*/
+    int hl_oc;          /* Row had open comment at end in last syntax highlight check. */
 } Row;
 
 typedef struct {
@@ -106,7 +107,7 @@ typedef struct {
     int row_offset;    /* Offset of row displayed. */
     int col_offset;    /* Offset of column displayed. */
     size_t num_rows;   /* Number of rows in the file */
-    Row* rows;         /* Rows */
+    Row* rows;         /* File rows */
     int dirty;         /* File modified but not saved. */
     char* name;        /* Currently open filename */
     int is_crlf;       /* Does file lines end with CRLF? */
@@ -491,9 +492,15 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
     const char *lcs = syntax->line_comment_start;
     const char *mcs = syntax->multiline_comment_start;
     const char *mce = syntax->multiline_comment_end;
-    int flags = syntax->flags;
+    const int flags = syntax->flags;
 
-    int in_token = 0, in_string = 0, in_number = 0, in_word = 0;
+    int in_token = 0, in_string = 0, in_number = 0,
+    in_word = 0, in_comment = 0;
+
+    if (row->idx > 0 && (row - 1)->hl_oc) {
+        in_comment = 1;
+        row->hl_oc = 1;
+    }
 
     size_t i = 0;
     size_t token_start = 0;
@@ -514,7 +521,18 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             break;
         }
 
-        in_token = in_string || in_number || in_word;
+        in_token = in_string || in_number || in_word || in_comment;
+
+        /* Handle multiline comments */
+        if (!in_token && strncmp(p, mcs, strlen(mcs)) == 0) {
+            token_start = i;
+            in_comment = 1;
+            row->hl_oc = 1;
+        } else if (in_comment && strncmp(p, mce, strlen(mce)) == 0) {
+            EditorSetHLType(row, HL_ML_COMMENT, token_start, i + strlen(mce));
+            in_comment = 0;
+            row->hl_oc = 0;
+        }
 
         /* Handle strings ("" and '') */
         if (flags & HL_HIGHLIGHT_STRINGS && !in_token && (*p == '"' || *p == '\'')) {
@@ -530,8 +548,8 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
         int is_number = 0;
         if (isdigit(*p)) is_number = 1; // TODO: add floats support
         if (flags & HL_HIGHLIGHT_NUMBERS && !in_token && is_number) {
-            in_number = 1; /* we assign to *p in order to know the closing pair */
             token_start = i;
+            in_number = 1; /* we assign to *p in order to know the closing pair */
         } else if (in_number && !is_number) {
             EditorSetHLType(row, HL_NUMBER, token_start, i);
             in_number = 0;
@@ -540,19 +558,22 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
         /* Handle keywords */
         if (!in_token && (isalpha(*p) || *p == '_' || *p == '#')) {
             /* '#' is a special case made to highlight c/c++ preprocessors. */
-            in_word = 1;
             token_start = i;
+            in_word = 1;
         } else if (in_word && !(isalnum(*p) || *p == '_')) {
             const enum HL_Type  hl_type = EditorGetHLType(syntax, row->render + token_start, i - token_start);
             EditorSetHLType(row, hl_type, token_start, i);
             in_word = 0;
         }
 
-        /* Handle multiline comments */
-        // TODO
-
         /* Check if we reached EOL */
-        if (*p == '\0') break;
+        if (*p == '\0') {
+            if (in_comment) {
+                EditorSetHLType(row, HL_ML_COMMENT, token_start, i);
+            }
+
+            break;
+        }
 
         p++; i++;
     }
@@ -568,10 +589,10 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
     case HL_COMMENT:
     case HL_ML_COMMENT: return 90;  /* gray */
 
-    case HL_KEYWORD_T1: return 34;    /* blue */
-    case HL_KEYWORD_T2: return 32;    /* green */
-    case HL_KEYWORD_T3: return 31;    /* red */
-    case HL_KEYWORD_T4: return 33;    /* yellow */
+    case HL_KEYWORD_T1: return 34;  /* blue */
+    case HL_KEYWORD_T2: return 32;  /* green */
+    case HL_KEYWORD_T3: return 31;  /* red */
+    case HL_KEYWORD_T4: return 33;  /* yellow */
 
     case HL_STRING: return 35;      /* magenta */
     case HL_NUMBER: return 36;      /* cyan */
@@ -1030,7 +1051,7 @@ int EditorRefreshScreen(const EditorData *e) {
         if (row_start < e->f_info.num_rows) {
             row = &e->f_info.rows[row_start];
         } else {
-            row = &(Row) {row_start, 0, 0, "", "", NULL};
+            row = &(Row) {row_start, 0, 0, "", "", NULL, 0};
         }
 
         const size_t len = row->rsize - e->f_info.col_offset;
