@@ -122,6 +122,9 @@ typedef struct {
     time_t msg_timer;
 } EditorData;
 
+/* When the file is modified, requires Ctrl-Q to be pressed `KILO_QUIT_TIMES` times before quitting. */
+const int KILO_QUIT_TIMES = 3;
+
 const int status_timeout = 5;
 
 enum KEY_ACTION {
@@ -838,9 +841,6 @@ void EditorHandlePageKeys(EditorData *e, const int key) {
     }
 }
 
-/* When the file is modified, requires Ctrl-Q to be pressed `KILO_QUIT_TIMES` times before quitting. */
-const int KILO_QUIT_TIMES = 3;
-
 /**
  * Process events arriving from the standard input (by user).
  */
@@ -865,11 +865,10 @@ int EditorProcessInput(EditorData *e) {
             "Press Ctrl-Q %d more times to quit.", quit_times
             );
             quit_times--;
-        } else {
-            EditorClearScreen();
-            return EXIT_SIGNAL;
+            return 0;
         }
-        break;
+        EditorClearScreen();
+        return EXIT_SIGNAL;
     case ARROW_UP:
     case ARROW_DOWN:
     case ARROW_LEFT:
