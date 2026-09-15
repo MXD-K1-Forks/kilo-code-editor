@@ -621,21 +621,27 @@ int EditorInsertRow(EditorData *e, const size_t at, const char *s, const size_t 
     return 0;
 }
 
+/* Remove the row at the specified position, shifting the remaining on the top. */
 void EditorDelRow(EditorData *e, size_t at) {}
 
-void EditorFreeRow(const Row *row) {
-    free(row->render);
-    free(row->chars);
-    free(row->hl);
-}
-
+/* Insert the specified char at the current prompt position. */
 void EditorRowInsertChar(EditorData *e, Row *row, size_t at, int c) {}
-void EditorRowAppendString(EditorData *e, Row *row, char *s, size_t len) {}
+
+/* Delete the character at offset 'at' from the specified row. */
 void EditorRowDelChar(EditorData *e, Row *row, size_t at) {}
+
+/* Insert the specified char at the current prompt position. */
 void EditorInsertChar(EditorData *e, int c) {}
-void EditorInsertNewline(EditorData *e) {}
+
+/* Delete the char at the current prompt position. */
 void EditorDelChar(EditorData *e) {}
 
+/* Inserting a newline is slightly complex as we have to handle inserting a
+ * newline in the middle of a line, splitting the line as needed. */
+void EditorInsertNewline(EditorData *e) {}
+
+/* Append the string 's' at the end of a row */
+void EditorRowAppendString(EditorData *e, Row *row, char *s, size_t len) {}
 
 /**
  * Turn the editor rows into a single heap-allocated string.
@@ -654,6 +660,13 @@ int EditorRowsToString(const EditorData *e, Buffer *buf) {
     }
     BufferAppendNull(buf);
     return 0;
+}
+
+/* Free row's heap allocated stuff. */
+void EditorFreeRow(const Row *row) {
+    free(row->render);
+    free(row->chars);
+    free(row->hl);
 }
 
 /* ========================================================================== */
@@ -841,9 +854,11 @@ int EditorProcessInput(EditorData *e) {
             "Press Ctrl-Q %d more times to quit.", quit_times
             );
             quit_times--;
+        } else {
+            EditorClearScreen();
+            return EXIT_SIGNAL;
         }
-        EditorClearScreen();
-        return EXIT_SIGNAL;
+        break;
     case ARROW_UP:
     case ARROW_DOWN:
     case ARROW_LEFT:
@@ -970,7 +985,6 @@ int FileLoad(EditorData *e, const char* filename) {
 int FileSave(EditorData *e) {
     Buffer data = BufferCreate();
     if (EditorRowsToString(e, &data) == -1) return -1;
-    BufferAppendNull(&data);
 
     FILE *fp = fopen(e->f_info.name, "w");
     if (fp == NULL) return -1;
@@ -1118,6 +1132,7 @@ int main(int argc, char* argv[]) {
     if (FileLoad(&editor, filename) == -1) return -1;
     if (EnableRawMode(&editor) == -1) {
         DisableRawMode(&editor);
+        EditorDestroy(&editor);
         return -1;
     }
     EditorSetStatusMessage(&editor, "Kilo Editor -- version %s", KILO_VERSION);
