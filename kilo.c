@@ -489,6 +489,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
         /* Handle non-printable chars. */
         if (!isprint(*p) && *p != '\0') {
             row->hl[i] = HL_NONPRINT;
+            p++; i++;
             continue;
         }
 
@@ -539,8 +540,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
         /* Check if we reached EOL */
         if (*p == '\0') break;
 
-        p++;
-        i++;
+        p++; i++;
     }
 
     return 0;
@@ -942,6 +942,7 @@ void EditorDestroy(const EditorData *e) {
     for (size_t  i = 0; i < e->f_info.num_rows; i++) {
         EditorFreeRow(&e->f_info.rows[i]);
     }
+    free(e->f_info.rows);
 }
 
 int FileLoad(EditorData *e, const char* filename) {
