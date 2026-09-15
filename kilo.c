@@ -222,11 +222,11 @@ HL_Syntax HL_DB[] = {
 #define HL_DB_ENTRIES (sizeof(HL_DB) / sizeof(HL_DB[0]))
 
 #ifdef _WIN32
-DWORD terminal_mode; /* In order to restore at exit.*/
+DWORD terminal_mode; /* In order to restore at exit. */
 #endif
 
 #ifdef __linux__
-struct termios terminal_mode; /* In order to restore at exit.*/
+struct termios terminal_mode; /* In order to restore at exit. */
 #endif
 
 /**
@@ -497,6 +497,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
     int in_token = 0, in_string = 0, in_number = 0,
     in_word = 0, in_comment = 0;
 
+    row->hl_oc = 0; /* Reset state when updating */
     if (row->idx > 0 && (row - 1)->hl_oc) {
         in_comment = 1;
         row->hl_oc = 1;
@@ -515,7 +516,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
         }
 
         /* Handle single line comments */
-        if (strncmp(p, lcs, strlen(lcs)) == 0) {
+        if (!in_comment && strncmp(p, lcs, strlen(lcs)) == 0) {
             /* From here to end is a comment */
             EditorSetHLType(row, HL_COMMENT, i, row->rsize);
             break;
@@ -644,6 +645,7 @@ int EditorInsertRow(EditorData *e, const size_t at, const char *s, const size_t 
     e->f_info.rows[at].rsize = 0;
     e->f_info.rows[at].render = NULL;
     e->f_info.rows[at].hl = NULL;
+    e->f_info.rows[at].hl_oc = 0;
 
     char* tmp_str = malloc(len + 1);
     if (tmp_str == NULL) return -1;
@@ -697,7 +699,9 @@ int EditorRowsToString(const EditorData *e, Buffer *buf) {
     return 0;
 }
 
-/* Free row's heap allocated stuff. */
+/**
+ * Free row's heap allocated stuff.
+ */
 void EditorFreeRow(const Row *row) {
     free(row->render);
     free(row->chars);
@@ -712,6 +716,9 @@ void EditorFind(EditorData *e);
 int FileSave(EditorData *e);
 int EditorRefreshScreen(const EditorData *e);
 
+/**
+ * Handle escape sequences.
+ */
 int EditorInterpretESC(void) {
     char seq[3];
 
@@ -749,6 +756,9 @@ int EditorInterpretESC(void) {
     return -1;
 }
 
+/**
+ * Read a key from the terminal put in raw mode.
+ */
 int EditorReadKey(void) {
     char c;
     ssize_t bytes;
@@ -868,7 +878,7 @@ void EditorHandlePageKeys(EditorData *e, const int key) {
 int EditorProcessInput(EditorData *e) {
     static int quit_times = KILO_QUIT_TIMES;
 
-    int key = EditorReadKey();
+    const int key = EditorReadKey();
     if (key == -1) return -1;
 
     switch (key) {
