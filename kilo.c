@@ -748,8 +748,18 @@ void EditorInsertNewline(EditorData *e) {
 }
 
 /* Append the string 's' at the end of a row */
-void EditorRowAppendString(EditorData *e, Row *row, char *s, size_t len) {
+int EditorRowAppendString(EditorData *e, Row *row, const char *s, const size_t len) {
+    char* tmp = realloc(row->chars, row->size + len + 1);
+    if (tmp == NULL) return -1;
+    row->chars = tmp;
 
+    memcpy(row->chars + row->size, s, len);
+    row->size += len;
+    row->chars[row->size] = '\0';
+    e->f_info.dirty++;
+
+    if (EditorUpdateRow(e, row)) return -1;
+    return 0;
 }
 
 /**
