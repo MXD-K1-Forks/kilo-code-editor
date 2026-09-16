@@ -1162,7 +1162,24 @@ int EditorRefreshScreen(const EditorData *e) {
                 BUFFER_APPEND_SAFE(&buf, tmp, 0);
             }
 
-            BUFFER_APPEND_SAFE(&buf, row->render + j, 1);
+            if (row->hl[j] != HL_NONPRINT) {
+                BUFFER_APPEND_SAFE(&buf, row->render + j, 1);
+            } else {
+                char symbol;
+                BUFFER_APPEND_SAFE(&buf,"\033[7m", 4);
+
+                /* Control characters 1-26 are displayed using caret notation (e.g. \r -> ^M).
+                 * In the code we display them without the caret and in reverse fg/bg color.
+                 * See: https://en.wikipedia.org/wiki/C0_and_C1_control_codes#C0_controls.
+                 * 1-26 map to ^A-^Z using ASCII: '@' + c.
+                 * See: https://en.wikipedia.org/wiki/Control_character#In_ASCII. */
+                if (row->render[j] <= 26)
+                    symbol = (char) ('@' + row->render[j]);
+                else symbol = '?';
+
+                BUFFER_APPEND_SAFE(&buf, &symbol, 1);
+                BUFFER_APPEND_SAFE(&buf, "\033[0m", 4);
+            }
         }
 
         BUFFER_APPEND_SAFE(&buf, "\033[39m", 0);
