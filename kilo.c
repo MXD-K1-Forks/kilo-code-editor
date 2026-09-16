@@ -606,6 +606,8 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
 
 /* ======================= Editor rows implementation ======================= */
 
+void EditorMoveCursor(EditorData *e, int key);
+
 /**
  * Free row's heap allocated stuff.
  */
@@ -686,24 +688,28 @@ void EditorDelRow(EditorData *e, const size_t at) {
  * Insert a character at the specified position in a row,
  * moving the remaining chars on the right if needed.
  */
-int EditorRowInsertChar(const EditorData *e, Row *row, const size_t at, const int c) {
+int EditorRowInsertChar(EditorData *e, Row *row, const size_t at, const int c) {
     char* tmp = realloc(row->chars, row->size + 2); /* For the character and the null terminator. */
     if (tmp == NULL) return -1;
     row->chars = tmp;
     row->size++;
 
-    memmove(row->chars + at + 1, row->chars + at, row->size - at + 1); /* Including the null terminator */
+    memmove(row->chars + at + 1, row->chars + at, row->size - at); /* Including the null terminator */
     memset(row->chars + at, c, 1);
 
+    e->f_info.dirty++;
+    EditorMoveCursor(e, ARROW_RIGHT);
     if (EditorUpdateRow(e, row)) return -1;
     return 0;
 }
 
 /* Delete the character at offset 'at' from the specified row. */
-int EditorRowDelChar(const EditorData *e, Row *row, const size_t at) {
+int EditorRowDelChar(EditorData *e, Row *row, const size_t at) {
     memmove(row->chars + at - 1, row->chars + at, row->size - at); /* Including the null terminator */
     row->size--;
 
+    e->f_info.dirty++;
+    EditorMoveCursor(e, ARROW_LEFT);
     if (EditorUpdateRow(e, row)) return -1;
     return 0;
 }
@@ -711,21 +717,21 @@ int EditorRowDelChar(const EditorData *e, Row *row, const size_t at) {
 /**
  * Insert the specified char at the current prompt position.
  */
-int EditorInsertChar(EditorData *e, int c) {
+int EditorInsertChar(EditorData *e, const int c) {
     /* Find cursor position. */
-    const int cx = e->f_info.row_offset + e->f_info.cx;
-    const int cy = e->f_info.col_offset + e->f_info.cy;
+    const int cx = e->f_info.col_offset + e->f_info.cx;
+    const int cy = e->f_info.row_offset + e->f_info.cy;
 
-    return EditorRowInsertChar(e, &e->f_info.rows[cx], cy, c);
+    return EditorRowInsertChar(e, &e->f_info.rows[cy], cx, c);
 }
 
 /* Delete the char at the current prompt position. */
 int EditorDelChar(EditorData *e) {
     /* Find cursor position. */
-    const int cx = e->f_info.row_offset + e->f_info.cx;
-    const int cy = e->f_info.col_offset + e->f_info.cy;
+    const int cx = e->f_info.col_offset + e->f_info.cx;
+    const int cy = e->f_info.row_offset + e->f_info.cy;
 
-    return EditorRowDelChar(e, &e->f_info.rows[cx], cy);
+    return EditorRowDelChar(e, &e->f_info.rows[cy], cx);
 }
 
 /* Inserting a newline is slightly complex as we have to handle inserting a
@@ -1051,9 +1057,11 @@ void EditorDestroy(const EditorData *e) {
  * @return 0 on success or -1 on error.
  */
 int FileLoad(EditorData *e, const char* filename) {
-    char* fn = malloc(strlen(filename) + 1);
+    const size_t len = strlen(filename);
+    char* fn = malloc(len + 1);
     if (fn == NULL) return -1;
     strcpy(fn, filename);
+    fn[len] = '\0';
 
     e->f_info = (FileInfo) {
         .cx = 0, .cy = 0,
@@ -1241,7 +1249,10 @@ int main(int argc, char* argv[]) {
 
     /* Setup terminal and get required info */
     EditorData editor = EditorInit();
-    if (FileLoad(&editor, filename) == -1) return -1;
+    if (FileLoad(&editor, filename) == -1) {
+        EditorDestroy(&editor);
+        return -1;
+    }
     if (EnableRawMode(&editor) == -1) {
         DisableRawMode(&editor);
         EditorDestroy(&editor);
