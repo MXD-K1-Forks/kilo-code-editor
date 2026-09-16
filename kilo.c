@@ -371,7 +371,6 @@ void BufferFree(const Buffer *buf) {
 
 /**
  * Query the system to get the current cursor position.
- *
  * @return 0 on success, -1 on failure.
  */
 int GetCursorPosition(int *rows, int *cols) {
@@ -701,15 +700,33 @@ int EditorRowInsertChar(const EditorData *e, Row *row, const size_t at, const in
 }
 
 /* Delete the character at offset 'at' from the specified row. */
-void EditorRowDelChar(EditorData *e, Row *row, size_t at) {}
+int EditorRowDelChar(const EditorData *e, Row *row, const size_t at) {
+    memmove(row->chars + at - 1, row->chars + at, row->size - at); /* Including the null terminator */
+    row->size--;
 
-/* Insert the specified char at the current prompt position. */
-void EditorInsertChar(EditorData *e, int c) {
+    if (EditorUpdateRow(e, row)) return -1;
+    return 0;
+}
 
+/**
+ * Insert the specified char at the current prompt position.
+ */
+int EditorInsertChar(EditorData *e, int c) {
+    /* Find cursor position. */
+    const int cx = e->f_info.row_offset + e->f_info.cx;
+    const int cy = e->f_info.col_offset + e->f_info.cy;
+
+    return EditorRowInsertChar(e, &e->f_info.rows[cx], cy, c);
 }
 
 /* Delete the char at the current prompt position. */
-void EditorDelChar(EditorData *e) {}
+int EditorDelChar(EditorData *e) {
+    /* Find cursor position. */
+    const int cx = e->f_info.row_offset + e->f_info.cx;
+    const int cy = e->f_info.col_offset + e->f_info.cy;
+
+    return EditorRowDelChar(e, &e->f_info.rows[cx], cy);
+}
 
 /* Inserting a newline is slightly complex as we have to handle inserting a
  * newline in the middle of a line, splitting the line as needed. */
