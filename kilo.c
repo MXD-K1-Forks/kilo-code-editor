@@ -515,14 +515,14 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax) {
             continue;
         }
 
+        in_token = in_string || in_number || in_word || in_comment;
+
         /* Handle single line comments */
-        if (!in_comment && strncmp(p, lcs, strlen(lcs)) == 0) {
+        if (!in_token && strncmp(p, lcs, strlen(lcs)) == 0) {
             /* From here to end is a comment */
             EditorSetHLType(row, HL_COMMENT, i, row->rsize);
             break;
         }
-
-        in_token = in_string || in_number || in_word || in_comment;
 
         /* Handle multiline comments */
         if (!in_token && strncmp(p, mcs, strlen(mcs)) == 0) {
@@ -704,7 +704,9 @@ int EditorRowInsertChar(const EditorData *e, Row *row, const size_t at, const in
 void EditorRowDelChar(EditorData *e, Row *row, size_t at) {}
 
 /* Insert the specified char at the current prompt position. */
-void EditorInsertChar(EditorData *e, int c) {}
+void EditorInsertChar(EditorData *e, int c) {
+
+}
 
 /* Delete the char at the current prompt position. */
 void EditorDelChar(EditorData *e) {}
