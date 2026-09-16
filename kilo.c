@@ -359,10 +359,6 @@ int BufferAppend(Buffer *buf, const char* str, const size_t len) {
     return 0;
 }
 
-void BufferAppendNull(const Buffer *buf) {
-    buf->str[buf->len] = '\0';
-}
-
 void BufferFree(const Buffer *buf) {
     free(buf->str);
 }
@@ -777,7 +773,6 @@ int EditorRowsToString(const EditorData *e, Buffer *buf) {
         BUFFER_APPEND_SAFE(buf, e->f_info.rows[i].chars, 0);
         BUFFER_APPEND_SAFE(buf, line_ending, 0);
     }
-    BufferAppendNull(buf);
     return 0;
 }
 
@@ -1188,7 +1183,7 @@ int EditorRefreshScreen(const EditorData *e) {
     }
 
     /* Create a two rows status */
-    char file_info[60], line_tracker[60]; // TODO: find better names
+    char file_info[30], line_tracker[30]; // TODO: find better names
 
     /* First: */
     snprintf(file_info, sizeof(file_info), "%.30s %s", e->f_info.name,
