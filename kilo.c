@@ -38,6 +38,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <time.h>
 
@@ -53,6 +54,7 @@
 #define KILO_VERSION "0.0.2"
 
 #define EXIT_SIGNAL 1 /* Used to signal program end */
+#define TAB_SIZE 4
 
 /* Syntax highlight types */
 enum HL_Type {
@@ -623,13 +625,35 @@ void EditorFreeRow(const Row *row) {
 /**
  * Update the rendered version and the syntax highlight of a row.
  */
-int EditorUpdateRow(const EditorData *e, Row *row) {
-    char *tmp = realloc(row->render, row->size + 1);
+int EditorUpdateRow(EditorData *e, Row *row) {
+    unsigned int tabs = 0;
+
+    for (size_t i = 0; i < row->size; i++) {
+        if (row->chars[i] == TAB) tabs++;
+    }
+
+    const unsigned long long alloc_size = (unsigned long long) row->size + tabs * TAB_SIZE + 1;
+    if (alloc_size > UINT32_MAX) {
+        EditorSetStatusMessage(
+            e, "Some line of the edited file"
+            " is too long for kilo. Exiting...\n"
+            );
+        return -1;
+    }
+
+    char *tmp = realloc(row->render, alloc_size);
     if (tmp == NULL) return -1;
-    row->rsize = row->size;
+    row->rsize = alloc_size - 1; /* Excluding null terminator. */
     row->render = tmp;
 
-    memcpy(row->render, row->chars, row->rsize);
+    for (size_t i = 0, idx = 0; i < row->size; i++) {
+        if (row->chars[i] == TAB) {
+            for (int j = 0; j < TAB_SIZE; j++) row->render[idx++] = ' ';
+        } else {
+            row->render[idx++] = row->chars[i];
+        }
+    }
+
     row->render[row->rsize] = '\0';
 
     /* Update the syntax highlighting attributes of the row. */
@@ -667,6 +691,7 @@ int EditorInsertRow(EditorData *e, const size_t at, const char *s, const size_t 
 
     if (EditorUpdateRow(e, &e->f_info.rows[at]) == -1) return -1;
     e->f_info.num_rows++;
+    e->f_info.dirty++;
 
     return 0;
 }
@@ -980,7 +1005,6 @@ int EditorProcessInput(EditorData *e) {
         break;
     case CTRL_L:
         return EditorRefreshScreen(e);
-    case TAB:    // TODO
     case KEY_NULL:
     case CTRL_C: /* Ignore Ctrl-C */
     case ESC:    /* Nothing to do for ESC in this mode. */
@@ -1026,6 +1050,7 @@ int FileLoadContents(EditorData *e) {
         }
     }
 
+    e->f_info.dirty = 0;
     free(line);
     fclose(fp);
     return 0;
@@ -1135,6 +1160,20 @@ int EditorRefreshScreen(const EditorData *e) {
     BUFFER_APPEND_SAFE(&buf, "\033[H", 0);    /* Go home. */
 
     for (int i = 0; i < e->screen_rows; i++) {
+        if (e->f_info.num_rows == 0) {
+            BUFFER_APPEND_SAFE(&buf, "~", 0);
+            if (i == e->screen_rows / 3) {
+                char tmp[30];
+                int len = snprintf(tmp, 30, "Kilo editor -- version %s", KILO_VERSION);
+                int padding = (e->screen_cols - len) / 2 - 1;
+                while (padding--) BUFFER_APPEND_SAFE(&buf, " ", 0);
+                BUFFER_APPEND_SAFE(&buf, tmp, 0);
+            }
+            BUFFER_APPEND_SAFE(&buf, "\033[0K", 0);
+            BUFFER_APPEND_SAFE(&buf, "\r\n", 0);
+            continue;
+        }
+
         const size_t row_start = e->f_info.row_offset + i;
         const Row *row;
         if (row_start < e->f_info.num_rows) {
@@ -1186,10 +1225,10 @@ int EditorRefreshScreen(const EditorData *e) {
     char file_info[30], line_tracker[30]; // TODO: find better names
 
     /* First: */
-    snprintf(file_info, sizeof(file_info), "%.30s %s", e->f_info.name,
+    snprintf(file_info, sizeof(file_info), "%.25s %s", e->f_info.name,
         e->f_info.dirty ? "- (modified)" : ""
         );
-    snprintf(line_tracker, sizeof(line_tracker), "%d/%lu - %.30s ",
+    snprintf(line_tracker, sizeof(line_tracker), "%d/%lu - %.20s ",
         e->f_info.row_offset + e->f_info.cy + 1,
         e->f_info.num_rows, e->f_info.syntax ? e->f_info.syntax->name : "Unrecognized"
         );
@@ -1212,8 +1251,17 @@ int EditorRefreshScreen(const EditorData *e) {
     }
 
     /* Restore cursor position */
+    int cx = e->f_info.cx + 1;
+    const size_t current_row = e->f_info.cy + e->f_info.row_offset;
+    const Row *row = (current_row >= e->f_info.num_rows) ? NULL : &e->f_info.rows[current_row];
+    if (row) {
+        for (size_t i = e->f_info.col_offset; i < (size_t) e->f_info.cx + e->f_info.col_offset; i++) {
+            if (i < row->size && row->chars[i] == TAB) cx += TAB_SIZE;
+        }
+    }
+
     char tmp[28];
-    snprintf(tmp, sizeof(tmp), "\033[%d;%dH", e->f_info.cy + 1, e->f_info.cx);
+    snprintf(tmp, sizeof(tmp), "\033[%d;%dH", e->f_info.cy + 1, cx);
     BUFFER_APPEND_SAFE(&buf, tmp, 0);
 
     BUFFER_APPEND_SAFE(&buf, "\033[?25h", 0); /* Show cursor. */
