@@ -730,6 +730,8 @@ void EditorDelRow(EditorData *e, const size_t at) {
  * moving the remaining chars on the right if needed.
  */
 int EditorRowInsertChar(EditorData *e, Row *row, const size_t at, const int c) {
+    if (at > row->size) return 0; /* Temp */
+
     char* tmp = realloc(row->chars, row->size + 2); /* For the character and the null terminator. */
     if (tmp == NULL) return -1;
     row->chars = tmp;
@@ -1278,17 +1280,18 @@ int EditorRefreshScreen(const EditorData *e) {
     }
 
     /* Create a two rows status */
-    char file_info[30], line_tracker[30]; // TODO: find better names
+    char file_info[35], line_tracker[35]; // TODO: find better names
 
     /* First: */
     snprintf(file_info, sizeof(file_info), "%.25s %s", e->f_info.name,
         e->f_info.dirty ? "- (modified)" : ""
         );
-    snprintf(line_tracker, sizeof(line_tracker), "%d/%zu - %.20s ",
+    snprintf(line_tracker, sizeof(line_tracker), "%d/%zu - %.15s ",
         e->f_info.row_offset + e->f_info.cy + 1,
         e->f_info.num_rows, e->f_info.syntax ? e->f_info.syntax->name : "Unrecognized"
         );
-    size_t cols = e->screen_cols - strlen(file_info) - strlen(line_tracker);
+
+    int cols = e->screen_cols - strlen(file_info) - strlen(line_tracker);
 
     BUFFER_APPEND_SAFE(&buf, "\033[0K", 0);
     BUFFER_APPEND_SAFE(&buf, "\033[7m", 0);
