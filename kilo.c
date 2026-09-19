@@ -612,6 +612,7 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
 /* ======================= Editor rows implementation ======================= */
 
 void EditorMoveCursor(EditorData *e, int key);
+int EditorRowAppendString(EditorData *e, Row *row, const char *s, const size_t len);
 
 /**
  * Free row's heap allocated stuff.
@@ -759,13 +760,59 @@ int EditorDelChar(EditorData *e) {
     const int cx = e->f_info.col_offset + e->f_info.cx;
     const int cy = e->f_info.row_offset + e->f_info.cy;
 
+    /* Handle the case of column 0, we need to move the
+     * current line on the right of the previous one. */
+    if (cx == 0) {
+        Row* row = &e->f_info.rows[cy];
+        Row* prev_row = &e->f_info.rows[cy - 1];
+
+        const int new_cx = prev_row->size;
+        EditorRowAppendString(e, prev_row, row->chars, row->size);
+        EditorDelRow(e, cy);
+        if (e->f_info.cy == 0) {
+            e->f_info.row_offset--;
+        }
+        else {
+            e->f_info.cy--;
+        }
+
+        e->f_info.cx = new_cx;
+        if (e->f_info.cx >= e->screen_cols) {
+            const int shift = e->screen_cols - e->f_info.cx + 1;
+            e->f_info.cx -= shift;
+            e->f_info.col_offset += shift;
+        }
+        return 0;
+    }
+
     return EditorRowDelChar(e, &e->f_info.rows[cy], cx);
 }
 
-/* Inserting a newline is slightly complex as we have to handle inserting a
- * newline in the middle of a line, splitting the line as needed. */
-void EditorInsertNewline(EditorData *e) {
+/**
+ * Inserting a newline, splitting the line as needed.
+ */
+int EditorInsertNewline(EditorData *e) {
+    const size_t cx = e->f_info.col_offset + e->f_info.cx;
+    const size_t cy = e->f_info.row_offset + e->f_info.cy;
 
+    if (cy >= e->f_info.num_rows) {
+        EditorInsertRow(e, cy, "", 0);
+        return 0;
+    }
+
+    Row *row = &e->f_info.rows[cy];
+
+    if (cx >= row->size) {
+        EditorInsertRow(e, cy, "", 0);
+        return 0;
+    }
+
+    /* We are in the middle of a line. */
+    EditorInsertRow(e, cy + 1, row->chars + cx, row->size - cx);
+    (row + 1)->chars[cx] = '\0';
+    (row + 1)->size = cx;
+
+    return EditorUpdateRow(e, row);
 }
 
 /* Append the string 's' at the end of a row */
@@ -1138,6 +1185,7 @@ int FileSave(EditorData *e) {
 
     const size_t bytes = fwrite(data.str, 1, data.len, fp);
     if (bytes != data.len) {
+        BufferFree(&data);
         fclose(fp);
         return -1;
     }
