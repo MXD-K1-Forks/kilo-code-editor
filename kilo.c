@@ -251,6 +251,8 @@ ssize_t getline(char** lineptr, size_t *n , FILE *stream) {
     int c;
 
     while ((c = fgetc(stream)) != EOF) {
+        if (ferror(stream)) return -1;
+
         if (len + 1 >= *n) {
             char *tmp  = realloc(*lineptr, *n * 2);
             if (tmp == NULL) return -1;
@@ -1183,28 +1185,24 @@ int FileLoad(EditorData *e, const char* filename) {
  * @return 0 on success, -1 on error.
  */
 int FileSave(EditorData *e) {
-    FILE *fp = fopen(e->f_info.name, "w");
-    if (fp == NULL) return -1;
+    int status = 0;
 
     Buffer data = BufferCreate();
-    if (EditorRowsToString(e, &data) == -1) {
-        BufferFree(&data);
-        fclose(fp);
-        return -1;
-    }
+    FILE *fp = fopen(e->f_info.name, "w");
+    if (fp == NULL) { status = -1; goto cleanup; }
+
+    if (EditorRowsToString(e, &data) == -1) { status = -1; goto cleanup; }
 
     const size_t bytes = fwrite(data.str, 1, data.len, fp);
-    if (bytes != data.len) {
-        BufferFree(&data);
-        fclose(fp);
-        return -1;
-    }
+    if (bytes != data.len) { status = -1; goto cleanup; }
 
     EditorSetStatusMessage(e, "%zu bytes written on disk", data.len);
     e->f_info.dirty = 0;
-    BufferFree(&data);
-    fclose(fp);
-    return 0;
+
+    cleanup:
+        BufferFree(&data);
+        if (fp && fclose(fp) == EOF) status = -1;
+        return status;
 }
 
 /**
@@ -1286,7 +1284,7 @@ int EditorRefreshScreen(const EditorData *e) {
     snprintf(file_info, sizeof(file_info), "%.25s %s", e->f_info.name,
         e->f_info.dirty ? "- (modified)" : ""
         );
-    snprintf(line_tracker, sizeof(line_tracker), "%d/%lu - %.20s ",
+    snprintf(line_tracker, sizeof(line_tracker), "%d/%zu - %.20s ",
         e->f_info.row_offset + e->f_info.cy + 1,
         e->f_info.num_rows, e->f_info.syntax ? e->f_info.syntax->name : "Unrecognized"
         );
