@@ -493,6 +493,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax, const size_t num_rows)
 
     int in_token = 0, in_string = 0, in_number = 0,
     in_word = 0, in_comment = 0;
+    int dot_count = 0;
 
     row->hl_oc = 0; /* Reset state when updating */
     if (row->idx > 0 && (row - 1)->hl_oc) {
@@ -543,15 +544,24 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax, const size_t num_rows)
         }
 
         /* Handle numbers */
-        int is_number = 0;
-        if (isdigit(*p)) is_number = 1; // TODO: add floats support
+        const int is_number = isdigit(*p) || *p == '.';
         if (flags & HL_HIGHLIGHT_NUMBERS && !in_token && is_number) {
             token_start = i;
-            in_number = 1; /* we assign to *p in order to know the closing pair */
+            in_number = 1;
         } else if (in_number && !is_number) {
-            EditorSetHLType(row, HL_NUMBER, token_start, i);
+            enum HL_Type type = HL_NUMBER;
+            if (dot_count > 1) type = HL_NORMAL;
+            else if (!(flags & HL_HIGHLIGHT_NUMBER_LEADING_DOT)
+                && row->render[token_start] == '.') type = HL_NORMAL;
+            else if (!(flags & HL_HIGHLIGHT_NUMBER_TRAILING_DOT)
+                && row->render[i - 1] == '.') type = HL_NORMAL;
+
+            EditorSetHLType(row, type, token_start, i);
+            dot_count = 0;
             in_number = 0;
         }
+
+        if (in_number) dot_count += *p == '.' ? 1 : 0;
 
         /* Handle keywords */
         if (!in_token && (isalpha(*p) || *p == '_' || *p == '#')) {
@@ -1355,7 +1365,8 @@ EditorData EditorInit(void) {
 
 #define KILO_QUERY_LEN 256
 
-void EditorFind(EditorData *e) {}
+/* Temp __attribute__((unused)) */
+void EditorFind(EditorData *e __attribute__((unused))) {}
 
 /* ========================================================================== */
 
