@@ -591,9 +591,10 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax, const size_t num_rows)
     /* Propagate syntax change to the next row if the
      * open comment state changed. This may recursively
      * affect all the following rows in the file. */
-    if (row->idx + 1 < num_rows) {
-        EditorUpdateSyntax(row + 1, syntax, num_rows);
-    }
+    /* Note: This causes a bug and will be fixed. */
+    // if (row->idx + 1 < num_rows) {
+    //     EditorUpdateSyntax(row + 1, syntax, num_rows);
+    // }
 
     return 0;
 }
@@ -750,10 +751,11 @@ int EditorRowDelChar(EditorData *e, Row *row, const size_t at) {
     if (row->size <= at) return 0;
 
     memmove(row->chars + at, row->chars + at + 1, row->size - at); /* Including the null terminator */
+    if (EditorUpdateRow(e, row)) return -1;
+
     e->f_info.dirty++;
     row->size--;
 
-    if (EditorUpdateRow(e, row)) return -1;
     return 0;
 }
 
@@ -774,10 +776,14 @@ int EditorDelChar(EditorData *e) {
     const int cx = e->f_info.col_offset + e->f_info.cx;
     const int cy = e->f_info.row_offset + e->f_info.cy;
 
+    if (cx == 0 && cy == 0) return 0; /* Beginning of the file. */
+    if ((size_t) cy >= e->f_info.num_rows) return 0;
+
+    Row* row = &e->f_info.rows[cy];
+
     /* Handle the case of column 0, we need to move the
      * current line on the right of the previous one. */
     if (cx == 0) {
-        Row* row = &e->f_info.rows[cy];
         Row* prev_row = &e->f_info.rows[cy - 1];
 
         const int new_cx = prev_row->size;
@@ -796,10 +802,15 @@ int EditorDelChar(EditorData *e) {
             e->f_info.cx -= shift;
             e->f_info.col_offset += shift;
         }
+
+        e->f_info.dirty++;
         return 0;
     }
 
-    return EditorRowDelChar(e, &e->f_info.rows[cy], cx);
+    if (EditorRowDelChar(e, row, cx - 1) == -1) return -1;
+    EditorMoveCursor(e, ARROW_LEFT);
+
+    return EditorUpdateRow(e, row);
 }
 
 /**
@@ -1198,13 +1209,17 @@ int FileSave(EditorData *e) {
     const size_t bytes = fwrite(data.str, 1, data.len, fp);
     if (bytes != data.len) { status = -1; goto cleanup; }
 
-    EditorSetStatusMessage(e, "%zu bytes written on disk", data.len);
-    e->f_info.dirty = 0;
-
     cleanup:
         BufferFree(&data);
         if (fp && fclose(fp) == EOF) status = -1;
-        return status;
+
+    if (status == 0) {
+        EditorSetStatusMessage(e, "%zu bytes written on disk", data.len);
+    } else {
+        EditorSetStatusMessage(e, "Couldn't save file to disk. Try again.");
+    }
+    e->f_info.dirty = 0;
+    return status;
 }
 
 /**
@@ -1244,7 +1259,9 @@ int EditorRefreshScreen(const EditorData *e) {
         int current_color = 37;
 
         const int col_offset = e->f_info.col_offset;
-        for (size_t j = col_offset; j < len; j++) {
+        for (size_t j = col_offset;
+            j < len && j < (size_t) e->screen_cols;
+            j++) {
             const int color = EditorMapSyntaxToColor(row->hl[j]);
             if (color != current_color) {
                 current_color = color;
@@ -1291,21 +1308,23 @@ int EditorRefreshScreen(const EditorData *e) {
         e->f_info.num_rows, e->f_info.syntax ? e->f_info.syntax->name : "Unrecognized"
         );
 
+    int len = 0;
     int cols = e->screen_cols - strlen(file_info) - strlen(line_tracker);
+    if (cols < 0) len = 20;
 
     BUFFER_APPEND_SAFE(&buf, "\033[0K", 0);
     BUFFER_APPEND_SAFE(&buf, "\033[7m", 0);
-    BUFFER_APPEND_SAFE(&buf, file_info, 0);
-    while (cols--) {
+    BUFFER_APPEND_SAFE(&buf, file_info, len);
+    while (cols-- > 0) {
         BUFFER_APPEND_SAFE(&buf, " ", 0);
     }
-    BUFFER_APPEND_SAFE(&buf, line_tracker, 0);
+    BUFFER_APPEND_SAFE(&buf, line_tracker, len);
     BUFFER_APPEND_SAFE(&buf, "\033[0m", 0);
     BUFFER_APPEND_SAFE(&buf, "\r\n", 0);
 
     /* Second: */
     BUFFER_APPEND_SAFE(&buf, "\033[0K", 0);
-    if (time(NULL) - e->msg_timer < status_timeout) {
+    if (strlen(e->status) && time(NULL) - e->msg_timer < status_timeout) {
         BUFFER_APPEND_SAFE(&buf, e->status, 0);
     }
 
