@@ -821,23 +821,30 @@ int EditorInsertNewline(EditorData *e) {
     const size_t cy = e->f_info.row_offset + e->f_info.cy;
 
     if (cy >= e->f_info.num_rows) {
-        EditorInsertRow(e, cy, "", 0);
+        if (EditorInsertRow(e, cy, "", 0) == -1) return -1;
         return 0;
     }
 
     Row *row = &e->f_info.rows[cy];
 
     if (cx >= row->size) {
-        EditorInsertRow(e, cy, "", 0);
+        if (EditorInsertRow(e, cy + 1, "", 0) == -1) return -1;
+        if (e->f_info.cy == e->screen_rows - 1) {
+            e->f_info.row_offset++;
+        } else {
+            e->f_info.cy++;
+        }
+        e->f_info.col_offset = 0;
+        e->f_info.cx = 0;
         return 0;
     }
 
     /* We are in the middle of a line. */
     EditorInsertRow(e, cy + 1, row->chars + cx, row->size - cx);
-    (row + 1)->chars[cx] = '\0';
-    (row + 1)->size = cx;
-
-    return EditorUpdateRow(e, row);
+    Row *new_row = &e->f_info.rows[cy + 1];
+    new_row->chars[cx] = '\0';
+    new_row->size = cx;
+    return EditorUpdateRow(e, new_row);
 }
 
 /* Append the string 's' at the end of a row */
