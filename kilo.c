@@ -593,7 +593,7 @@ int EditorUpdateSyntax(Row *row, const HL_Syntax *syntax, const size_t num_rows)
      * affect all the following rows in the file. */
     /* Note: This causes a bug and will be fixed. */
     // if (row->idx + 1 < num_rows) {
-    //     EditorUpdateSyntax(row + 1, syntax, num_rows);
+    //     if (EditorUpdateSyntax(row + 1, syntax, num_rows) == -1) return -1;
     // }
 
     return 0;
@@ -739,10 +739,12 @@ int EditorRowInsertChar(EditorData *e, Row *row, const size_t at, const int c) {
     row->size++;
 
     memmove(row->chars + at + 1, row->chars + at, row->size - at); /* Including the null terminator */
-    memset(row->chars + at, c, 1);
+    row->chars[at] = c;
 
     e->f_info.dirty++;
-    if (EditorUpdateRow(e, row)) return -1;
+    if (EditorUpdateRow(e, row) == -1) return -1;
+    EditorMoveCursor(e, ARROW_RIGHT);
+
     return 0;
 }
 
@@ -751,7 +753,7 @@ int EditorRowDelChar(EditorData *e, Row *row, const size_t at) {
     if (row->size <= at) return 0;
 
     memmove(row->chars + at, row->chars + at + 1, row->size - at); /* Including the null terminator */
-    if (EditorUpdateRow(e, row)) return -1;
+    if (EditorUpdateRow(e, row) == -1) return -1;
 
     e->f_info.dirty++;
     row->size--;
