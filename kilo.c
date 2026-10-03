@@ -772,7 +772,14 @@ int EditorInsertChar(EditorData *e, const int c) {
     const int cx = e->f_info.col_offset + e->f_info.cx;
     const int cy = e->f_info.row_offset + e->f_info.cy;
 
-    return EditorRowInsertChar(e, &e->f_info.rows[cy], cx, c);
+    Row *row = ((size_t) cy >= e->f_info.num_rows) ? NULL : &e->f_info.rows[cy];
+
+    if (!row) {
+        EditorInsertRow(e, e->f_info.num_rows, "", 0);
+        row = &e->f_info.rows[cy];
+    }
+
+    return EditorRowInsertChar(e, row, cx, c);
 }
 
 /**
