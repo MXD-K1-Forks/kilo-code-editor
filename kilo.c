@@ -732,7 +732,8 @@ void EditorDelRow(EditorData *e, const size_t at) {
  * moving the remaining chars on the right if needed.
  */
 int EditorRowInsertChar(EditorData *e, Row *row, const size_t at, const int c) {
-    if (at > row->size) return 0; /* Temp */
+    /* This should not happen, but in case it happened, we should return to prevent bugs */
+    if (at > row->size) return 0;
 
     char* tmp = realloc(row->chars, row->size + 2); /* For the character and the null terminator. */
     if (tmp == NULL) return -1;
@@ -1273,11 +1274,9 @@ int EditorRefreshScreen(const EditorData *e) {
         }
 
         const size_t row_start = e->f_info.row_offset + i;
-        const Row *row;
+        const Row *row = &(Row) {row_start, 0, 0, "", "", NULL, 0};
         if (row_start < e->f_info.num_rows) {
             row = &e->f_info.rows[row_start];
-        } else {
-            row = &(Row) {row_start, 0, 0, "", "", NULL, 0};
         }
 
         const size_t len = row->rsize - e->f_info.col_offset;
