@@ -54,7 +54,7 @@
 #define KILO_VERSION "0.0.2"
 
 #define EXIT_SIGNAL 1 /* Used to signal program end */
-#define TAB_SIZE 4
+#define TAB_STOP_LEN 4
 
 /* Syntax highlight types */
 enum HL_Type {
@@ -646,7 +646,7 @@ int EditorUpdateRow(EditorData *e, Row *row) {
         if (row->chars[i] == TAB) tabs++;
     }
 
-    const unsigned long long alloc_size = (unsigned long long) row->size + tabs * TAB_SIZE + 1;
+    const unsigned long long alloc_size = (unsigned long long) row->size + tabs * TAB_STOP_LEN + 1;
     if (alloc_size > UINT32_MAX) {
         EditorSetStatusMessage(
             e, "Some line of the edited file"
@@ -657,17 +657,18 @@ int EditorUpdateRow(EditorData *e, Row *row) {
 
     char *tmp = realloc(row->render, alloc_size);
     if (tmp == NULL) return -1;
-    row->rsize = alloc_size - 1; /* Excluding null terminator. */
     row->render = tmp;
 
-    for (size_t i = 0, idx = 0; i < row->size; i++) {
+    size_t idx = 0;
+    for (size_t i = 0; i < row->size; i++) {
         if (row->chars[i] == TAB) {
-            for (int j = 0; j < TAB_SIZE; j++) row->render[idx++] = ' ';
+            do { row->render[idx++] = ' '; } while ((idx + 1) % TAB_STOP_LEN != 0);
         } else {
             row->render[idx++] = row->chars[i];
         }
     }
 
+    row->rsize = idx;
     row->render[row->rsize] = '\0';
 
     /* Update the syntax highlighting attributes of the row. */
@@ -1353,12 +1354,13 @@ int EditorRefreshScreen(const EditorData *e) {
     }
 
     /* Restore cursor position */
-    int cx = e->f_info.cx + 1;
+    int cx = 1;
     const size_t current_row = e->f_info.cy + e->f_info.row_offset;
     const Row *row = (current_row >= e->f_info.num_rows) ? NULL : &e->f_info.rows[current_row];
     if (row) {
         for (size_t i = e->f_info.col_offset; i < (size_t) e->f_info.cx + e->f_info.col_offset; i++) {
-            if (i < row->size && row->chars[i] == TAB) cx += TAB_SIZE;
+            if (i < row->size && row->chars[i] == TAB) cx += TAB_STOP_LEN - 1 - cx % TAB_STOP_LEN;
+            cx++;
         }
     }
 
