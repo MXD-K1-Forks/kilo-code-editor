@@ -625,7 +625,7 @@ int EditorMapSyntaxToColor(const enum HL_Type hl) {
 /* ======================= Editor rows implementation ======================= */
 
 void EditorMoveCursor(EditorData *e, int key);
-int EditorRowAppendString(EditorData *e, Row *row, const char *s, const size_t len);
+int EditorRowAppendString(EditorData *e, Row *row, const char *s, size_t len);
 
 /**
  * Free row's heap allocated stuff.
@@ -739,7 +739,7 @@ int EditorRowInsertChar(EditorData *e, Row *row, const size_t at, const int c) {
     row->size++;
 
     memmove(row->chars + at + 1, row->chars + at, row->size - at); /* Including the null terminator */
-    row->chars[at] = c;
+    row->chars[at] = (char) c;
 
     e->f_info.dirty++;
     if (EditorUpdateRow(e, row) == -1) return -1;
@@ -753,10 +753,11 @@ int EditorRowDelChar(EditorData *e, Row *row, const size_t at) {
     if (row->size <= at) return 0;
 
     memmove(row->chars + at, row->chars + at + 1, row->size - at); /* Including the null terminator */
-    if (EditorUpdateRow(e, row) == -1) return -1;
 
     e->f_info.dirty++;
     row->size--;
+
+    if (EditorUpdateRow(e, row) == -1) return -1;
 
     return 0;
 }
@@ -772,7 +773,9 @@ int EditorInsertChar(EditorData *e, const int c) {
     return EditorRowInsertChar(e, &e->f_info.rows[cy], cx, c);
 }
 
-/* Delete the char at the current prompt position. */
+/**
+ * Delete the char at the current prompt position.
+ */
 int EditorDelChar(EditorData *e) {
     /* Find cursor position. */
     const int cx = e->f_info.col_offset + e->f_info.cx;
@@ -788,7 +791,7 @@ int EditorDelChar(EditorData *e) {
     if (cx == 0) {
         Row* prev_row = &e->f_info.rows[cy - 1];
 
-        const int new_cx = prev_row->size;
+        const int new_cx = (int) prev_row->size;
         EditorRowAppendString(e, prev_row, row->chars, row->size);
         EditorDelRow(e, cy);
         if (e->f_info.cy == 0) {
@@ -806,9 +809,10 @@ int EditorDelChar(EditorData *e) {
         }
 
         e->f_info.dirty++;
-        return 0;
+        return EditorUpdateRow(e, prev_row);
     }
 
+    // Else, delete the char before the cursor and move the cursor back
     if (EditorRowDelChar(e, row, cx - 1) == -1) return -1;
     EditorMoveCursor(e, ARROW_LEFT);
 
@@ -822,13 +826,22 @@ int EditorInsertNewline(EditorData *e) {
     const size_t cx = e->f_info.col_offset + e->f_info.cx;
     const size_t cy = e->f_info.row_offset + e->f_info.cy;
 
+    /* We are at the end of file. */
     if (cy >= e->f_info.num_rows) {
         if (EditorInsertRow(e, cy, "", 0) == -1) return -1;
+        if (e->f_info.cy == e->screen_rows - 1) {
+            e->f_info.row_offset++;
+        } else {
+            e->f_info.cy++;
+        }
+        e->f_info.cx = 0;
+        e->f_info.col_offset = 0;
         return 0;
     }
 
-    Row *row = &e->f_info.rows[cy];
+    const Row *row = &e->f_info.rows[cy];
 
+    /* We are at the end of line. */
     if (cx >= row->size) {
         if (EditorInsertRow(e, cy + 1, "", 0) == -1) return -1;
         if (e->f_info.cy == e->screen_rows - 1) {
@@ -843,10 +856,12 @@ int EditorInsertNewline(EditorData *e) {
 
     /* We are in the middle of a line. */
     EditorInsertRow(e, cy + 1, row->chars + cx, row->size - cx);
-    Row *new_row = &e->f_info.rows[cy + 1];
-    new_row->chars[cx] = '\0';
-    new_row->size = cx;
-    return EditorUpdateRow(e, new_row);
+
+    /* Remove the text after the cursor. */
+    e->f_info.rows[cy].chars[cx] = '\0';
+    e->f_info.rows[cy].size = cx;
+
+    return EditorUpdateRow(e, &e->f_info.rows[cy]);
 }
 
 /* Append the string 's' at the end of a row */
@@ -1318,7 +1333,7 @@ int EditorRefreshScreen(const EditorData *e) {
         );
 
     int len = 0;
-    int cols = e->screen_cols - strlen(file_info) - strlen(line_tracker);
+    int cols = e->screen_cols - (int) strlen(file_info) - (int) strlen(line_tracker);
     if (cols < 0) len = 20;
 
     BUFFER_APPEND_SAFE(&buf, "\033[0K", 0);

@@ -19,4 +19,4 @@ format:
 clean:
 	rm kilo
 
-.PHONY: all clean
+.PHONY: all format clean
