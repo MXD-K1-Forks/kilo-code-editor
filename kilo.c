@@ -755,12 +755,10 @@ int EditorRowDelChar(EditorData *e, Row *row, const size_t at) {
     if (row->size <= at) return 0;
 
     memmove(row->chars + at, row->chars + at + 1, row->size - at); /* Including the null terminator */
+    if (EditorUpdateRow(e, row) == -1) return -1;
 
     e->f_info.dirty++;
     row->size--;
-
-    if (EditorUpdateRow(e, row) == -1) return -1;
-
     return 0;
 }
 
@@ -818,14 +816,19 @@ int EditorDelChar(EditorData *e) {
         }
 
         e->f_info.dirty++;
-        return EditorUpdateRow(e, prev_row);
+
+        return EditorUpdateRow(e, &e->f_info.rows[cy - 1]);
     }
 
     // Else, delete the char before the cursor and move the cursor back
-    if (EditorRowDelChar(e, row, cx - 1) == -1) return -1;
-    EditorMoveCursor(e, ARROW_LEFT);
-
-    return EditorUpdateRow(e, row);
+    if (e->f_info.col_offset && e->f_info.cx == 0) {
+        e->f_info.col_offset--;
+    }
+    else {
+        e->f_info.cx--;
+    }
+    if (EditorRowDelChar(e, row, e->f_info.cx) == -1) return -1;
+    return 0;
 }
 
 /**
@@ -889,10 +892,10 @@ int EditorRowAppendString(EditorData *e, Row *row, const char *s, const size_t l
 }
 
 /**
- * Turn the editor rows into a single heap-allocated string.
- * Returns the pointer to the heap-allocated string and populate the
- * integer pointed by 'buffer_len' with the size of the string, excluding
- * the final null terminator. (Not updated)
+ * Turn the editor rows into a single heap-allocated string,
+ * preserving the original line ending. It puts the result back
+ * into `buf->str` and populate the `buf->len` with the
+ * size of the string, excluding the final null terminator.
  */
 int EditorRowsToString(const EditorData *e, Buffer *buf) {
     char* line_ending;
