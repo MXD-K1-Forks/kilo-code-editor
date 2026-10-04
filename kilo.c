@@ -750,7 +750,9 @@ int EditorRowInsertChar(EditorData *e, Row *row, const size_t at, const int c) {
     return 0;
 }
 
-/* Delete the character at offset 'at' from the specified row. */
+/**
+ * Delete the character at offset 'at' from the specified row.
+ */
 int EditorRowDelChar(EditorData *e, Row *row, const size_t at) {
     if (row->size <= at) return 0;
 
@@ -876,7 +878,9 @@ int EditorInsertNewline(EditorData *e) {
     return EditorUpdateRow(e, &e->f_info.rows[cy]);
 }
 
-/* Append the string 's' at the end of a row */
+/**
+ * Append the string 's' at the end of a row
+ */
 int EditorRowAppendString(EditorData *e, Row *row, const char *s, const size_t len) {
     char* tmp = realloc(row->chars, row->size + len + 1);
     if (tmp == NULL) return -1;
@@ -1134,6 +1138,10 @@ int EditorProcessInput(EditorData *e) {
 
 /* ========================================================================== */
 
+/**
+ * Load file contents into editor memory.
+ * @return 0 on success, -1 on failure to read the file or if the file doesn't exist.
+ */
 int FileLoadContents(EditorData *e) {
     FILE *fp = fopen(e->f_info.name, "r");
     if (fp == NULL) return -1;
@@ -1289,12 +1297,11 @@ int EditorRefreshScreen(const EditorData *e) {
             row = &e->f_info.rows[row_start];
         }
 
-        const size_t len = row->rsize - e->f_info.col_offset;
         int current_color = 37;
 
         const int col_offset = e->f_info.col_offset;
         for (size_t j = col_offset;
-            j < len && j < (size_t) e->screen_cols;
+            j < row->rsize && j < (size_t) col_offset + e->screen_cols;
             j++) {
             const int color = EditorMapSyntaxToColor(row->hl[j]);
             if (color != current_color) {
